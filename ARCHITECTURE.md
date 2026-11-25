@@ -2,7 +2,7 @@
 
 ## 1. État du workspace et périmètre
 
-À l’étape d’architecture initiale, le workspace ne contenait aucun code source ni fichier de projet. Le backend Django et le paquet indépendant `backend/domain/game_engine/` ont depuis été ajoutés. Le moteur de règles pur est implémenté et testé ; son branchement aux services REST/WebSocket, au bot solo et à la persistance des résultats reste à faire.
+À l’étape d’architecture initiale, le workspace ne contenait aucun code source ni fichier de projet. Le backend Django, le paquet indépendant `backend/domain/game_engine/` et le multijoueur Channels/Redis ont depuis été ajoutés. Les salons, snapshots privés, commandes de partie, reconnexion, présence, abandon et résultats sont branchés aux services transactionnels. L’intégration automatique du bot solo et son interface de commandes restent distinctes.
 
 Le jeu sera une application web responsive avec :
 
@@ -43,7 +43,7 @@ Principes structurants :
 
 DRF fournit l’API et des JWT (par exemple avec SimpleJWT). Le jeton de renouvellement devrait être conservé dans un cookie `HttpOnly`, `Secure` en production, avec protection CSRF ; le jeton d’accès reste en mémoire côté navigateur.
 
-Le navigateur ne pouvant pas définir librement un en-tête `Authorization` lors d’une connexion WebSocket native, l’API délivrera un **ticket WebSocket à usage unique et de courte durée**. Le client l’échange pour ouvrir la socket ; on évite ainsi de placer un JWT durable dans l’URL. Le ticket et la socket sont vérifiés avant d’autoriser l’accès au groupe d’une partie.
+Le navigateur ne pouvant pas définir librement un en-tête `Authorization` lors d’une connexion WebSocket native, l’API délivre un **ticket WebSocket à usage unique et de courte durée**. Le client l’échange pour ouvrir la socket ; on évite ainsi de placer un JWT durable dans l’URL. Le ticket et la socket sont vérifiés avant d’autoriser l’accès au groupe d’une partie.
 
 Pour une action, le client envoie un `request_id` et la `state_version` qu’il a observée. Le service verrouille la partie dans une transaction, valide la version et l’action, persiste l’état et l’événement, puis publie la mise à jour via `transaction.on_commit`. Une commande répétée est idempotente ; une version périmée provoque un refus et l’envoi d’un snapshot récent.
 
@@ -140,7 +140,7 @@ Le backend utilisera Python, Django, Django REST Framework, Django Channels, Red
 4. **Moteur de jeu (implémenté)** — catalogue, état, actions légales, transitions, scoring distance et tests unitaires pytest ; reste à faire l'intégration avec les services de partie.
 5. **Salons et persistance** — modèles/migrations, création et jointure par code, capacité, transactions, snapshots et journal.
 6. **Tranche verticale solo** — plateau responsive, actions REST au départ, bot heuristique, résultat sauvegardé ; valider l’expérience et les règles avant de généraliser.
-7. **Multijoueur temps réel** — tickets WebSocket, Channels/Redis, messages versionnés, commandes idempotentes, projections privées, reconnexion et tests concurrents.
+7. **Multijoueur temps réel (implémenté)** — tickets WebSocket, Channels/Redis, commandes versionnées/idempotentes, projections privées, présence, reconnexion, abandon et tests des consommateurs/services.
 8. **Historique et statistiques** — liste/détail de parties, agrégats, pagination et tests d’idempotence.
 9. **Durcissement et livraison** — tests end-to-end, sécurité des salons, rate limiting, observabilité, migrations de production, sauvegardes PostgreSQL et déploiement.
 

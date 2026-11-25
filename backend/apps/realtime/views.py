@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -21,7 +22,7 @@ class GameWebSocketTicketView(APIView):
         return Response(
             {
                 "ticket": ticket,
-                "expires_in": 30,
-                "websocket_path": f"/ws/games/{game.pk}/lobby/",
+                "expires_in": settings.JWT_WS_TICKET_TTL_SECONDS,
+                "websocket_path": f"/ws/games/{game.pk}/",
             }
         )

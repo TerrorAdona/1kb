@@ -89,6 +89,7 @@ class GameParticipant(models.Model):
     is_ready = models.BooleanField(default=False)
     kilometers = models.PositiveSmallIntegerField(default=0)
     placement = models.PositiveSmallIntegerField(null=True, blank=True)
+    abandoned_at = models.DateTimeField(null=True, blank=True)
     joined_at = models.DateTimeField(default=timezone.now)
 
     class Meta:

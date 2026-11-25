@@ -1,6 +1,6 @@
 # Mille Bornes — backend
 
-Le backend Django fournit les comptes, les salons et leur cycle de vie, l’historique/statistiques et un WebSocket de diffusion du lobby. Le moteur pur de règles est maintenant disponible dans `backend/domain/game_engine/` avec son catalogue, les transitions, les validations de commandes et les tests pytest. Il n’est pas encore branché aux services REST/WebSocket : les résultats peuvent uniquement être enregistrés par le service interne `finish_game`, pas par un endpoint client.
+Le backend Django fournit les comptes, les salons et leur cycle de vie, l’historique/statistiques et le multijoueur temps réel avec Django Channels et Redis. Le moteur pur de règles dans `backend/domain/game_engine/` valide les commandes côté serveur ; l’état complet reste en base et chaque socket reçoit une projection qui masque les mains adverses. Le mode solo conserve ses routes existantes et initialise le même état moteur, tandis que les commandes WebSocket sont réservées aux parties multijoueur.
 
 ## Démarrage avec Docker
 
@@ -57,7 +57,7 @@ Toutes les routes ci-dessous sont préfixées par `/api/v1/`.
 | `GET` | `history/` | Historique personnel des parties terminées |
 | `GET` | `stats/me/` | Statistiques personnelles |
 
-Les réponses utilisent JSON. Les actions de salon sont atomiques et les changements sont journalisés ; le WebSocket est en lecture seule, authentifié par ticket, et diffuse les changements du salon. Les codes d’invitation ne sont stockés qu’en condensat et ne sont renvoyés qu’à la création.
+Les réponses utilisent JSON. Les actions de salon et de jeu sont atomiques et journalisées. Le WebSocket est authentifié par ticket bref à usage unique ; il transmet un snapshot à la connexion/reconnexion, la présence, les événements et les coups multijoueur validés par le moteur. Un abandon pendant une partie annule la course tout en conservant son état. Les codes d’invitation ne sont stockés qu’en condensat et ne sont renvoyés qu’à la création.
 
 ## Exemple de parcours API
 
@@ -68,7 +68,7 @@ Les réponses utilisent JSON. Les actions de salon sont atomiques et les changem
 5. `POST /games/` avec `{"mode":"multiplayer","visibility":"private","max_players":4}`. Copier le `invite_code` renvoyé : il n’est pas récupérable ensuite.
 6. Les autres joueurs appellent `POST /games/{id}/join/` avec `{"invite_code":"..."}`. Chacun peut appeler `PATCH /games/{id}/ready/` avec `{"is_ready":true}` ; l’hôte appelle ensuite `POST /games/{id}/start/`.
 
-Pour le WebSocket, appeler `POST /games/{id}/ws-ticket/`, puis ouvrir le chemin renvoyé en ajoutant `?ticket=<ticket>`. Le ticket expire rapidement et ne peut être consommé qu’une fois.
+Pour le WebSocket, appeler `POST /games/{id}/ws-ticket/`, puis ouvrir le chemin renvoyé en ajoutant `?ticket=<ticket>`. Le ticket expire rapidement et ne peut être consommé qu’une fois. Le serveur envoie `lobby.snapshot` dans un salon et `game.snapshot` pendant une partie ; les changements sont envoyés sous `game.event`. Les commandes de partie utilisent `game.action` avec `request_id`, `state_version`, `action` (`draw`, `play`, `discard` ou `pass`) et, si nécessaire, `card_id`/`target_player_id`. Un abandon est envoyé avec `game.abandon`. En cas de version périmée, le serveur renvoie une erreur et un snapshot à jour.
 
 Exemple `curl` minimal (remplacer les valeurs et recopier le `csrfToken`, l’`access` et le code d’invitation renvoyés) :
 

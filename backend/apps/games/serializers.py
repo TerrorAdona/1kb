@@ -15,6 +15,7 @@ class GameParticipantSerializer(serializers.ModelSerializer):
             "is_ready",
             "kilometers",
             "placement",
+            "abandoned_at",
             "joined_at",
         ]
         read_only_fields = fields

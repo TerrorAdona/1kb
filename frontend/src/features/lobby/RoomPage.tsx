@@ -18,6 +18,7 @@ import {
   startGame,
 } from "../games/gameApi";
 import { useLobbySocket } from "../games/useLobbySocket";
+import type { GameSnapshot } from "../../shared/types/realtime";
 import type { Game } from "../../shared/types/api";
 import { apiErrorMessage } from "../../shared/api/errors";
 import { Button, ButtonLink } from "../../shared/components/Button";
@@ -32,6 +33,7 @@ export function RoomPage() {
   const [game, setGame] = useState<Game | null>(null);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
+  const [onlineParticipants, setOnlineParticipants] = useState<Record<string, boolean>>({});
   const inviteCode = (location.state as { inviteCode?: string } | null)?.inviteCode;
 
   const reload = useCallback(async () => {
@@ -44,7 +46,25 @@ export function RoomPage() {
     }
   }, [gameId]);
 
-  const socketStatus = useLobbySocket(gameId, reload);
+  const handleSnapshot = useCallback((snapshot: GameSnapshot) => {
+    setOnlineParticipants(snapshot.presence);
+    if (snapshot.game.status === "active") {
+      navigate(`/game/${snapshot.game.id}`, {
+        state: { game: snapshot.game },
+      });
+    }
+  }, [navigate]);
+
+  const socketStatus = useLobbySocket(
+    gameId,
+    reload,
+    (participantId, online) =>
+      setOnlineParticipants((current) => ({
+        ...current,
+        [participantId]: online,
+      })),
+    handleSnapshot,
+  );
 
   useEffect(() => {
     void reload();
@@ -165,8 +185,8 @@ export function RoomPage() {
                           {participant.kind === "bot"
                             ? `Adversaire IA · ${difficultyLabel(participant.bot_difficulty)}`
                             : participant.display_name === user?.display_name
-                              ? "Vous"
-                              : `Siège ${participant.seat_number}`}
+                              ? `Vous · ${onlineParticipants[participant.id] === false ? "Hors ligne" : "En ligne"}`
+                              : `Siège ${participant.seat_number} · ${onlineParticipants[participant.id] === false ? "Hors ligne" : "En ligne"}`}
                         </small>
                       </span>
                       <span className={`ready-status ${ready ? "ready" : "not-ready"}`}>

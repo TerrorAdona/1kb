@@ -24,8 +24,9 @@ VITE_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
 Le frontend envoie les requêtes avec les cookies nécessaires au renouvellement
-JWT et au contrôle CSRF. Pour le lobby en temps réel, l'URL WebSocket est déduite
-de `VITE_API_BASE_URL` ; `VITE_WS_BASE_URL` peut la remplacer si nécessaire.
+JWT et au contrôle CSRF. Le lobby et les parties multijoueur utilisent le
+WebSocket authentifié ; son URL est déduite de `VITE_API_BASE_URL`.
+`VITE_WS_BASE_URL` peut la remplacer si nécessaire.
 
 ## Vérifications
 
@@ -34,6 +35,7 @@ pnpm typecheck
 pnpm build
 ```
 
-L'écran de jeu est encore une prévisualisation : il sera relié au moteur lorsque
-l'API de partie et ses actions seront disponibles. Les règles du jeu ne sont pas
-implémentées dans le frontend.
+Le plateau multijoueur reçoit les snapshots et événements du serveur et envoie
+uniquement des commandes ; le serveur valide chaque coup. L'écran solo conserve
+son aperçu tant que l'intégration des tours d'IA n'est pas exposée. Aucune règle
+du jeu n'est implémentée dans React.

@@ -19,6 +19,7 @@ export interface GameParticipant {
   is_ready: boolean;
   kilometers: number;
   placement: number | null;
+  abandoned_at?: string | null;
   joined_at: string;
 }
 

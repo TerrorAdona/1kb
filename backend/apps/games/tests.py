@@ -150,6 +150,36 @@ class GameLobbyApiTests(TestCase):
         self.assertEqual(bots.count(), 2)
         self.assertEqual(set(bots.values_list("bot_difficulty", flat=True)), {"hard"})
 
+    def test_starting_solo_game_initializes_the_shared_engine_state(self):
+        created = self.create_game(
+            mode="solo",
+            visibility="private",
+            max_players=3,
+            bot_difficulty="normal",
+        )
+        game_id = created.data["id"]
+        started = self.client.post(f"/api/v1/games/{game_id}/start/")
+        self.assertEqual(started.status_code, 200)
+
+        game = Game.objects.get(pk=game_id)
+        self.assertEqual(game.status, Game.Status.ACTIVE)
+        self.assertEqual(game.state["phase"], "draw")
+        self.assertEqual(len(game.state["players"]), 3)
+        self.assertTrue(
+            all(len(player["hand"]) == 6 for player in game.state["players"])
+        )
+        bot_ids = {
+            str(participant.pk)
+            for participant in GameParticipant.objects.filter(
+                game=game, kind=GameParticipant.Kind.BOT
+            )
+        }
+        self.assertTrue(
+            bot_ids.issubset(
+                {player["player_id"] for player in game.state["players"]}
+            )
+        )
+
     def test_finish_game_records_result_distance_and_stats(self):
         created = self.create_game(visibility="public", max_players=2)
         game_id = created.data["id"]

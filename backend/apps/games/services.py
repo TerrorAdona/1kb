@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import secrets
 from datetime import timedelta
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Count, F, Value
@@ -12,9 +13,15 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from apps.accounts.models import User
 from apps.statistics.models import PlayerStats
 from domain.game_ai import Difficulty
+from domain.game_engine.engine import (
+    RuleViolation,
+    apply_action,
+    new_game,
+)
+from domain.game_engine.models import GamePhase, state_from_dict, state_to_dict
 
 from .events import record_game_event
-from .models import Game, GameParticipant, GameResult
+from .models import Game, GameEvent, GameParticipant, GameResult
 
 INVITE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
@@ -23,6 +30,15 @@ class GameConflict(APIException):
     status_code = 409
     default_detail = "La partie ne peut pas effectuer cette action dans son état actuel."
     default_code = "game_conflict"
+
+
+class GameActionRejected(APIException):
+    status_code = 400
+    default_detail = "Cette action n’est pas autorisée."
+    default_code = "invalid_game_action"
+
+    def __init__(self, detail=None, code=None):
+        super().__init__(detail or self.default_detail, code or self.default_code)
 
 
 def _generate_invite_code() -> str:
@@ -212,6 +228,24 @@ def join_game(*, game_id, user: User, invite_code: str | None = None) -> Game:
 def leave_game(*, game_id, user: User) -> Game:
     with transaction.atomic():
         game = _lock_game(game_id)
+        if game.status == Game.Status.ACTIVE:
+            participant = _participant(game, user)
+            if participant.abandoned_at is None:
+                participant.abandoned_at = timezone.now()
+                participant.save(update_fields=["abandoned_at"])
+                game.status = Game.Status.CANCELLED
+                game.save(update_fields=["status", "updated_at"])
+                record_game_event(
+                    game,
+                    "player.abandoned",
+                    actor=user,
+                    public_payload={
+                        "participant_id": str(participant.pk),
+                        "display_name": participant.display_name,
+                        "game_cancelled": True,
+                    },
+                )
+            return game
         _require_waiting(game)
         participant = _participant(game, user)
         record_game_event(
@@ -286,11 +320,207 @@ def start_game(*, game_id, user: User) -> Game:
             raise GameConflict("Tous les joueurs humains doivent être prêts.")
         if len(participants) < 2:
             raise ValidationError("Il faut au moins deux participants.")
+        # The engine snapshot is the authoritative state for both modes. Bots
+        # remain in their existing seats, so initializing the solo state does
+        # not change its room or AI configuration.
+        engine_state = new_game([str(p.pk) for p in participants])
+        game.state = state_to_dict(engine_state)
         game.status = Game.Status.ACTIVE
         game.started_at = timezone.now()
-        game.save(update_fields=["status", "started_at", "updated_at"])
-        record_game_event(game, "game.started", actor=user)
+        game.save(update_fields=["state", "status", "started_at", "updated_at"])
+        record_game_event(
+            game,
+            "game.started",
+            actor=user,
+            public_payload={
+                "active_player_id": str(participants[engine_state.active_player_index].pk),
+                "phase": engine_state.phase.value,
+            },
+        )
     return game
+
+
+def abandon_multiplayer_game(*, game_id, user: User, request_id: UUID):
+    """Record an explicit concession and cancel the match without losing state."""
+    command = {"type": "game.abandon"}
+    with transaction.atomic():
+        game = _lock_game(game_id)
+        participant = _participant(game, user)
+        previous = GameEvent.objects.filter(
+            game=game, actor=user, request_id=request_id
+        ).first()
+        if previous:
+            if previous.public_payload.get("client_action") != command:
+                raise GameConflict("Cet identifiant de commande a déjà été utilisé.")
+            return game, True
+        if game.mode != Game.Mode.MULTIPLAYER:
+            raise GameConflict("L’abandon WebSocket est réservé au multijoueur.")
+        if game.status != Game.Status.ACTIVE:
+            raise GameConflict("Seule une partie en cours peut être abandonnée.")
+        if participant.abandoned_at is None:
+            participant.abandoned_at = timezone.now()
+            participant.save(update_fields=["abandoned_at"])
+        game.status = Game.Status.CANCELLED
+        game.save(update_fields=["status", "updated_at"])
+        record_game_event(
+            game,
+            "player.abandoned",
+            actor=user,
+            public_payload={
+                "client_action": command,
+                "participant_id": str(participant.pk),
+                "display_name": participant.display_name,
+                "game_cancelled": True,
+            },
+            request_id=request_id,
+        )
+        return game, False
+
+
+def apply_multiplayer_action(
+    *,
+    game_id,
+    user: User,
+    request_id: UUID,
+    expected_version: int,
+    action: str,
+    card_id: str | None = None,
+    target_player_id: str | None = None,
+):
+    """Validate, apply and persist one player command atomically.
+
+    The client supplies intent only. The engine state, acting seat and result
+    are all loaded and validated on the server while the game row is locked.
+    """
+    command = {
+        "action": action,
+        "card_id": card_id,
+        "target_player_id": target_player_id,
+    }
+    with transaction.atomic():
+        game = _lock_game(game_id)
+        participant = _participant(game, user)
+
+        previous = GameEvent.objects.filter(
+            game=game, actor=user, request_id=request_id
+        ).first()
+        if previous:
+            if previous.public_payload.get("client_action") != command:
+                raise GameConflict("Cet identifiant de commande a déjà été utilisé.")
+            return game, True
+
+        if game.mode != Game.Mode.MULTIPLAYER:
+            raise GameConflict("Les commandes WebSocket sont réservées au multijoueur.")
+        if game.status != Game.Status.ACTIVE:
+            raise GameConflict("Cette partie n’accepte plus de coups.")
+        if (
+            isinstance(expected_version, bool)
+            or not isinstance(expected_version, int)
+            or expected_version != game.state_version
+        ):
+            raise GameConflict(
+                "L’état de la partie a changé. Reconnectez-vous pour obtenir le nouvel état."
+            )
+        if not isinstance(game.state, dict) or not game.state.get("players"):
+            raise GameConflict("L’état de la partie est indisponible.")
+
+        try:
+            current_state = state_from_dict(game.state)
+            transition = apply_action(
+                current_state,
+                player_id=str(participant.pk),
+                action=action,
+                card_id=card_id,
+                target_player_id=target_player_id,
+            )
+        except RuleViolation as exc:
+            raise GameActionRejected(str(exc), exc.code) from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GameConflict("L’état enregistré de la partie est invalide.") from exc
+
+        game.state = state_to_dict(transition.state)
+        game.save(update_fields=["state", "updated_at"])
+
+        participants = list(
+            GameParticipant.objects.select_for_update()
+            .filter(game=game)
+            .order_by("seat_number")
+        )
+        participants_by_id = {str(item.pk): item for item in participants}
+        for engine_player in transition.state.players:
+            db_player = participants_by_id.get(engine_player.player_id)
+            if db_player is None:
+                raise GameConflict("Le moteur référence un siège inexistant.")
+            if db_player.kilometers != engine_player.distance:
+                db_player.kilometers = engine_player.distance
+                db_player.save(update_fields=["kilometers"])
+
+        public_events = []
+        private_events = {}
+        for engine_event in transition.events:
+            item = {
+                "event_type": engine_event.event_type,
+                "actor_player_id": engine_event.actor_player_id,
+                "target_player_id": engine_event.target_player_id,
+                "details": engine_event.details,
+            }
+            if engine_event.private_to_player_id:
+                private_recipient = participants_by_id.get(
+                    engine_event.private_to_player_id
+                )
+                if private_recipient and private_recipient.user_id:
+                    private_item = {
+                        **item,
+                        "card_id": engine_event.card_id,
+                        "card_type": engine_event.card_type,
+                    }
+                    private_events.setdefault(str(private_recipient.user_id), []).append(
+                        private_item
+                    )
+            else:
+                item.update(
+                    card_id=engine_event.card_id,
+                    card_type=engine_event.card_type,
+                )
+            # The event itself (e.g. “a pioché”) is public; only the identity
+            # of a privately drawn card is withheld from the other seats.
+            public_events.append(item)
+
+        record_game_event(
+            game,
+            "game.action",
+            actor=user,
+            public_payload={
+                "client_action": command,
+                "action": action,
+                "events": public_events,
+            },
+            private_payloads={
+                user_id: {"events": events}
+                for user_id, events in private_events.items()
+            },
+            request_id=request_id,
+        )
+
+        if transition.state.phase == GamePhase.FINISHED:
+            winner_id = (
+                transition.state.winner_ids[0]
+                if transition.state.winner_ids
+                else max(
+                    transition.state.players,
+                    key=lambda player: player.distance,
+                ).player_id
+            )
+            finish_game(
+                game_id=game.pk,
+                winner_participant_id=winner_id,
+                kilometers_by_participant={
+                    str(item.pk): item.kilometers for item in participants
+                },
+            )
+
+        game.refresh_from_db()
+        return game, False
 
 
 def finish_game(

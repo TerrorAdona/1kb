@@ -9,7 +9,14 @@ from .models import GameEvent
 logger = logging.getLogger(__name__)
 
 
-def record_game_event(game, event_type, actor=None, public_payload=None, private_payloads=None):
+def record_game_event(
+    game,
+    event_type,
+    actor=None,
+    public_payload=None,
+    private_payloads=None,
+    request_id=None,
+):
     game.state_version += 1
     game.save(update_fields=["state_version", "updated_at"])
     event = GameEvent.objects.create(
@@ -17,6 +24,7 @@ def record_game_event(game, event_type, actor=None, public_payload=None, private
         sequence=game.state_version,
         actor=actor,
         actor_display_name=getattr(actor, "display_name", ""),
+        request_id=request_id,
         event_type=event_type,
         public_payload=public_payload or {},
         private_payloads=private_payloads or {},
