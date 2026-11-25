@@ -135,16 +135,20 @@ class GameLobbyApiTests(TestCase):
             GameParticipant.objects.filter(game=game, user=self.host).exists()
         )
 
-    def test_solo_game_fills_remaining_seats_with_bots(self):
-        created = self.create_game(mode="solo", visibility="private", max_players=3)
+    def test_solo_game_fills_remaining_seats_with_bots_at_selected_difficulty(self):
+        created = self.create_game(
+            mode="solo",
+            visibility="private",
+            max_players=3,
+            bot_difficulty="hard",
+        )
         self.assertEqual(created.status_code, 201)
         self.assertEqual(created.data["seats_taken"], 3)
-        self.assertEqual(
-            GameParticipant.objects.filter(
-                game_id=created.data["id"], kind=GameParticipant.Kind.BOT
-            ).count(),
-            2,
+        bots = GameParticipant.objects.filter(
+            game_id=created.data["id"], kind=GameParticipant.Kind.BOT
         )
+        self.assertEqual(bots.count(), 2)
+        self.assertEqual(set(bots.values_list("bot_difficulty", flat=True)), {"hard"})
 
     def test_finish_game_records_result_distance_and_stats(self):
         created = self.create_game(visibility="public", max_players=2)

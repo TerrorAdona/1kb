@@ -66,6 +66,10 @@ class GameCreateSerializer(serializers.Serializer):
         choices=Game.Visibility.choices, default=Game.Visibility.PRIVATE
     )
     max_players = serializers.IntegerField(min_value=2, max_value=4, default=4)
+    bot_difficulty = serializers.ChoiceField(
+        choices=[("easy", "Facile"), ("normal", "Normale"), ("hard", "Difficile")],
+        default="normal",
+    )
     invite_expires_in_hours = serializers.IntegerField(
         min_value=1, max_value=168, required=False, default=24
     )

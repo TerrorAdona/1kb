@@ -11,6 +11,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 
 from apps.accounts.models import User
 from apps.statistics.models import PlayerStats
+from domain.game_ai import Difficulty
 
 from .events import record_game_event
 from .models import Game, GameParticipant, GameResult
@@ -52,9 +53,21 @@ def _require_waiting(game: Game) -> None:
         raise GameConflict("Cette partie n’accepte plus de modification de salon.")
 
 
-def create_game(*, host: User, mode: str, visibility: str, max_players: int, invite_expires_in_hours: int):
+def create_game(
+    *,
+    host: User,
+    mode: str,
+    visibility: str,
+    max_players: int,
+    invite_expires_in_hours: int,
+    bot_difficulty: str = Difficulty.NORMAL.value,
+):
     if mode == Game.Mode.SOLO:
         visibility = Game.Visibility.PRIVATE
+        try:
+            bot_difficulty = Difficulty(bot_difficulty).value
+        except ValueError as exc:
+            raise ValidationError("Difficulté de bot inconnue.") from exc
 
     invite_code = _generate_invite_code() if visibility == Game.Visibility.PRIVATE and mode == Game.Mode.MULTIPLAYER else None
     invite_hash = _invite_digest(invite_code) if invite_code else None
@@ -88,7 +101,7 @@ def create_game(*, host: User, mode: str, visibility: str, max_players: int, inv
                     kind=GameParticipant.Kind.BOT,
                     seat_number=seat_number,
                     display_name=f"Bot {seat_number - 1}",
-                    bot_difficulty="normal",
+                    bot_difficulty=bot_difficulty,
                     is_ready=True,
                 )
         record_game_event(
