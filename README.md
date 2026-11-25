@@ -1,6 +1,6 @@
 # Mille Bornes — backend
 
-Le backend Django initial fournit les comptes, les salons et leur cycle de vie, l’historique/statistiques et un WebSocket de diffusion du lobby. **Le moteur complet de règles et les actions de jeu ne sont pas encore implémentés.** Les résultats peuvent uniquement être enregistrés par le service interne `finish_game`, pas par un endpoint client.
+Le backend Django fournit les comptes, les salons et leur cycle de vie, l’historique/statistiques et un WebSocket de diffusion du lobby. Le moteur pur de règles est maintenant disponible dans `backend/domain/game_engine/` avec son catalogue, les transitions, les validations de commandes et les tests pytest. Il n’est pas encore branché aux services REST/WebSocket : les résultats peuvent uniquement être enregistrés par le service interne `finish_game`, pas par un endpoint client.
 
 ## Démarrage avec Docker
 
@@ -11,6 +11,19 @@ cp .env.example .env
 # Remplacer DJANGO_SECRET_KEY et les mots de passe dans .env.
 docker compose up --build
 ```
+
+## Tester le moteur de jeu
+
+Depuis `backend/`, installez les dépendances de développement et exécutez les
+tests du domaine sans démarrer Django, PostgreSQL ou Redis :
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest -q tests/test_game_engine.py
+```
+
+Le ruleset par défaut et ses variantes sont décrits dans
+[`backend/domain/game_engine/RULESET.md`](backend/domain/game_engine/RULESET.md).
 
 L’API est disponible sur `http://localhost:8000/api/v1/`. Au démarrage local, le conteneur applique les migrations puis lance Daphne (HTTP + WebSocket).
 

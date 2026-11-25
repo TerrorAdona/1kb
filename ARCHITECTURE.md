@@ -2,7 +2,7 @@
 
 ## 1. État du workspace et périmètre
 
-À l’étape d’architecture initiale, le workspace ne contenait aucun code source ni fichier de projet. Ce document a servi de base au backend Django ajouté ensuite ; le moteur complet de règles reste volontairement hors périmètre de cette première implémentation.
+À l’étape d’architecture initiale, le workspace ne contenait aucun code source ni fichier de projet. Le backend Django et le paquet indépendant `backend/domain/game_engine/` ont depuis été ajoutés. Le moteur de règles pur est implémenté et testé ; son branchement aux services REST/WebSocket, au bot solo et à la persistance des résultats reste à faire.
 
 Le jeu sera une application web responsive avec :
 
@@ -11,7 +11,7 @@ Le jeu sera une application web responsive avec :
 - des comptes, un historique et des statistiques ;
 - un moteur de jeu faisant autorité côté serveur.
 
-**Hypothèse de départ :** une partie occupe de 2 à 4 sièges. En solo, un siège est humain et les autres sont des bots ; en multijoueur, les sièges sont humains. Les règles exactes (variantes, équipes, conditions de fin et barème) seront figées dans un `ruleset_version` avant l’implémentation du moteur.
+**Hypothèse de départ :** une partie occupe de 2 à 4 sièges. En solo, un siège est humain et les autres sont des bots ; en multijoueur, les sièges sont humains. Le ruleset par défaut Dujardin Classique 2025 et ses variantes configurables sont documentés dans `backend/domain/game_engine/RULESET.md`; les règles et choix de score sont sérialisables avec la partie.
 
 ## 2. Architecture générale
 
@@ -134,10 +134,10 @@ Le backend utilisera Python, Django, Django REST Framework, Django Channels, Red
 
 ## 7. Plan de développement
 
-1. **Décisions produit et règles** — confirmer la variante Mille Bornes, le barème, les conditions de fin, les sièges/équipes, la durée des tours et le comportement des bots ; rédiger `docs/ruleset.md`.
+1. **Décisions produit et règles** — le ruleset par défaut est confirmé dans `backend/domain/game_engine/RULESET.md`. Les choix de format d'équipes, durée des tours et comportement des bots restent à confirmer.
 2. **Socle du monorepo** — initialiser Vite/React/TypeScript/Tailwind et Django, configuration d’environnement, Docker Compose PostgreSQL/Redis, contrôles de santé, lint et tests de base.
 3. **Comptes et contrats API** — utilisateur personnalisé, JWT, cookie de renouvellement sécurisé, profil, conventions d’erreur et tests d’API.
-4. **Moteur de jeu** — catalogue versionné, état, actions légales, transitions, scoring et tests unitaires exhaustifs, y compris cas limites.
+4. **Moteur de jeu (implémenté)** — catalogue, état, actions légales, transitions, scoring distance et tests unitaires pytest ; reste à faire l'intégration avec les services de partie.
 5. **Salons et persistance** — modèles/migrations, création et jointure par code, capacité, transactions, snapshots et journal.
 6. **Tranche verticale solo** — plateau responsive, actions REST au départ, bot heuristique, résultat sauvegardé ; valider l’expérience et les règles avant de généraliser.
 7. **Multijoueur temps réel** — tickets WebSocket, Channels/Redis, messages versionnés, commandes idempotentes, projections privées, reconnexion et tests concurrents.
