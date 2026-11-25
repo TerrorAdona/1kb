@@ -2,7 +2,7 @@
 
 ## 1. État du workspace et périmètre
 
-Le workspace ne contient actuellement aucun code source ni fichier de projet. Le dossier `.git` présent est vide : il n’y a pas de dépôt Git exploitable à analyser. Cette première étape pose donc les décisions d’architecture et le plan, sans générer les fonctionnalités ni initialiser prématurément les applications.
+À l’étape d’architecture initiale, le workspace ne contenait aucun code source ni fichier de projet. Ce document a servi de base au backend Django ajouté ensuite ; le moteur complet de règles reste volontairement hors périmètre de cette première implémentation.
 
 Le jeu sera une application web responsive avec :
 
