@@ -22,6 +22,20 @@ export interface WebSocketTicket {
   websocket_path: string;
 }
 
+export interface SoloActionPayload {
+  action: string;
+  card_id?: string;
+  target_player_id?: string;
+  state_version: number;
+  request_id: string;
+}
+
+export interface SoloActionResponse {
+  game: Game;
+  state_version: number;
+  duplicate: boolean;
+}
+
 function unwrapPage<T>(data: T[] | ApiPage<T>) {
   return Array.isArray(data) ? data : data.results;
 }
@@ -86,4 +100,9 @@ export async function getPlayerStats() {
 export async function getGameHistory() {
   const { data } = await api.get<GameHistory[] | ApiPage<GameHistory>>("/history/");
   return unwrapPage(data);
+}
+
+export async function playSoloAction(gameId: string, payload: SoloActionPayload) {
+  const { data } = await api.post<SoloActionResponse>(`/games/${gameId}/action/`, payload);
+  return data;
 }

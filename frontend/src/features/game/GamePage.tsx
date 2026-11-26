@@ -15,7 +15,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { getGame } from "../games/gameApi";
+import { getGame, playSoloAction } from "../games/gameApi";
 import type { Game } from "../../shared/types/api";
 import type { CardType } from "../../shared/types/game";
 import { apiErrorMessage } from "../../shared/api/errors";
@@ -98,6 +98,10 @@ export function GamePage() {
 
   if (game?.mode === "multiplayer") {
     return <LiveMultiplayerGame game={game} />;
+  }
+
+  if (game?.mode === "solo") {
+    return <LiveSoloGame game={game} />;
   }
 
   const gameTitle = game?.mode === "solo" ? "Course en solo" : "Course multijoueur";
@@ -257,6 +261,455 @@ export function GamePage() {
       )}
       <p className="mt-4 text-center text-[10px] text-stone-500">
         Données de plateau temporaires utilisées uniquement parce que l’API de jeu n’est pas encore disponible.
+      </p>
+    </div>
+  );
+}
+
+function LiveSoloGame({ game }: { game: Game }) {
+  const navigate = useNavigate();
+  const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState("");
+  const [selectedTargetId, setSelectedTargetId] = useState("");
+  const [message, setMessage] = useState("");
+  const [isActing, setIsActing] = useState(false);
+
+  useEffect(() => {
+    const loadSnapshot = async () => {
+      try {
+        const data = await getGame(game.id);
+        setSnapshot({
+          game: data,
+          state: null,
+          events: [],
+          presence: {},
+        });
+      } catch (cause) {
+        setMessage(apiErrorMessage(cause, "Impossible de charger l'état de la partie."));
+      }
+    };
+    loadSnapshot();
+  }, [game.id]);
+
+  useEffect(() => {
+    if (!snapshot?.game) return;
+    getGame(snapshot.game.id)
+      .then((data) => {
+        setSnapshot((current) =>
+          current
+            ? { ...current, game: data }
+            : { game: data, state: null, events: [], presence: {} },
+        );
+      })
+      .catch(() => {});
+  }, [snapshot?.game?.id]);
+
+  const state = snapshot?.state ?? null;
+  const self = state?.players.find(
+    (player) => player.player_id === state.viewer_player_id,
+  );
+  const opponents =
+    state?.players.filter(
+      (player) => player.player_id !== state.viewer_player_id,
+    ) ?? [];
+  const selectedPlays =
+    state?.legal_actions.filter(
+      (action) => action.card_id === selectedCardId,
+    ) ?? [];
+  const targetOptions = selectedPlays.filter(
+    (action) => action.target_player_id !== null,
+  );
+  const selectedPlay =
+    selectedPlays.find(
+      (action) => action.target_player_id === selectedTargetId,
+    ) ??
+    selectedPlays.find((action) => action.target_player_id === null) ??
+    (selectedPlays.length === 1 ? selectedPlays[0] : undefined);
+
+  async function sendAction(action: string, extra: Record<string, unknown> = {}) {
+    if (!snapshot?.game) return;
+    setIsActing(true);
+    try {
+      const response = await playSoloAction(snapshot.game.id, {
+        action,
+        ...extra,
+        state_version: snapshot.game.state_version,
+        request_id: crypto.randomUUID(),
+      });
+      setMessage("");
+      setSnapshot((current) =>
+        current
+          ? { ...current, game: response.game, state_version: response.state_version }
+          : null,
+      );
+      // Reload to get updated state with bot turns
+      const refreshed = await getGame(snapshot.game.id);
+      setSnapshot((current) =>
+        current ? { ...current, game: refreshed } : null,
+      );
+    } catch (cause) {
+      setMessage(apiErrorMessage(cause, "La commande n'a pas pu être exécutée."));
+    } finally {
+      setIsActing(false);
+    }
+  }
+
+  function playSelectedCard() {
+    if (!selectedCardId || !selectedPlay) {
+      setMessage(
+        targetOptions.length > 1
+          ? "Choisissez un adversaire à cibler."
+          : "Cette carte n'est pas jouable dans l'état actuel.",
+      );
+      return;
+    }
+    sendAction("play", {
+      card_id: selectedCardId,
+      ...(selectedPlay.target_player_id
+        ? { target_player_id: selectedPlay.target_player_id }
+        : {}),
+    });
+    setSelectedCardId("");
+    setSelectedTargetId("");
+  }
+
+  function discardSelectedCard() {
+    if (!selectedCardId) {
+      setMessage("Sélectionnez une carte à défausser.");
+      return;
+    }
+    sendAction("discard", { card_id: selectedCardId });
+    setSelectedCardId("");
+  }
+
+  function abandonGame() {
+    if (!window.confirm("Abandonner cette partie ? La course sera annulée.")) {
+      return;
+    }
+    sendAction("abandon", {});
+  }
+
+  if (!state) {
+    return (
+      <div className="mx-auto max-w-3xl py-8">
+        <div className="game-preview-warning">
+          <Radio size={17} className="shrink-0" />
+          <p>
+            {snapshot?.game?.status === "active"
+              ? "Chargement de la partie en cours…"
+              : "Partie non disponible."}
+          </p>
+        </div>
+        {message && <div className="mt-4"><Notice tone="error">{message}</Notice></div>}
+      </div>
+    );
+  }
+
+  const currentStatus =
+    game.status === "finished"
+      ? "Partie terminée"
+      : game.status === "cancelled"
+        ? "Partie annulée"
+        : state.can_pass
+          ? "À vous de répondre"
+          : state.active_player_id === state.viewer_player_id
+            ? state.phase === "draw"
+              ? "À vous de piocher"
+              : "À vous de jouer"
+            : `Tour de l'adversaire (IA)`;
+
+  return (
+    <div className="page-enter">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <ButtonLink to="/lobby" variant="quiet" className="text-forest">
+          <ArrowLeft size={16} /> Retour au lobby
+        </ButtonLink>
+        <span className="socket-pill socket-connected">
+          <Radio size={14} />
+          Partie solo
+        </span>
+      </div>
+
+      {message && <div className="mb-4"><Notice tone="error">{message}</Notice></div>}
+      {game.status === "cancelled" && (
+        <div className="mb-4">
+          <Notice>La partie a été annulée. L'état reste consultable.</Notice>
+        </div>
+      )}
+
+      <div className="game-table">
+        <header className="game-topbar">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-white/10 text-orange-300">
+              <Flag size={18} />
+            </span>
+            <span className="min-w-0">
+              <strong className="block truncate font-display text-lg font-extrabold text-cream">
+                Mille Bornes · Solo
+              </strong>
+              <small className="text-xs text-cream/50">
+                Tour {state.turn_number} · {state.draw_pile_count} cartes dans la pioche
+              </small>
+            </span>
+          </div>
+          <div className="game-turn-pill">
+            <span className="turn-pulse" /> {currentStatus}
+          </div>
+          {game.status === "active" && (
+            <Button
+              variant="quiet"
+              size="sm"
+              className="text-cream/65 hover:bg-white/10 hover:text-cream"
+              onClick={abandonGame}
+              disabled={isActing}
+            >
+              Abandonner
+            </Button>
+          )}
+        </header>
+
+        <section className="opponent-board" aria-label="État visible des adversaires">
+          {opponents.map((opponent, index) => (
+            <OpponentBoardCard
+              key={opponent.player_id}
+              player={opponent}
+              index={index}
+              online={true}
+              active={opponent.player_id === state.active_player_id}
+            />
+          ))}
+          <div className="opponent-note">
+            <span className="grid size-8 place-items-center rounded-xl bg-white/8 text-orange-300">
+              <Sparkles size={15} />
+            </span>
+            <span>
+              <strong>Adversaires IA</strong>
+              <small>Le serveur joue automatiquement leurs tours</small>
+            </span>
+          </div>
+        </section>
+
+        <section className="road-board" aria-label="État de la course">
+          <div className="road-board-top">
+            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.14em] text-cream/55">
+              <Gauge size={15} /> La route
+            </span>
+            <span className="text-xs font-semibold text-cream/45">
+              Objectif · {state.target_distance.toLocaleString("fr-FR")} km
+            </span>
+          </div>
+          <div className="road-progress-wrap">
+            <div className="road-progress-label">
+              <span>{self?.display_name ?? "Vous"}</span>
+              <strong>{self?.distance ?? 0} <small>km</small></strong>
+            </div>
+            <div className="road-track">
+              <span
+                className="road-track-fill"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    ((self?.distance ?? 0) / state.target_distance) * 100,
+                  )}%`,
+                }}
+              />
+              <span
+                className="road-car-marker"
+                style={{
+                  left: `${Math.min(
+                    97,
+                    ((self?.distance ?? 0) / state.target_distance) * 100,
+                  )}%`,
+                }}
+              >
+                🚙
+              </span>
+              <span className="road-finish-marker">
+                <Flag size={13} /> {state.target_distance}
+              </span>
+            </div>
+            <div className="road-ticks">
+              <span>0 km</span>
+              <span>{Math.round(state.target_distance / 2)} km</span>
+              <span>{state.target_distance} km</span>
+            </div>
+          </div>
+          <div className="road-boards">
+            <BattleBoard
+              title="Votre route"
+              icon={<ShieldCheck size={15} />}
+              status={self?.green_light_card ? "Feu vert" : "À l'arrêt"}
+              tone={self?.green_light_card ? "good" : "neutral"}
+              card={self?.green_light_card}
+            />
+            <BattleBoard
+              title="Danger actif"
+              icon={<Gauge size={15} />}
+              status={
+                self?.battle_attack
+                  ? cardLabel(self.battle_attack.card_type)
+                  : self?.speed_attack
+                    ? cardLabel(self.speed_attack.card_type)
+                    : "Aucun"
+              }
+              tone={self?.battle_attack || self?.speed_attack ? "neutral" : "good"}
+              card={self?.battle_attack ?? self?.speed_attack}
+            />
+            <BattleBoard
+              title="Bottes actives"
+              icon={<Sparkles size={15} />}
+              status={self?.safeties.length ? self.safeties.map(cardLabel).join(" · ") : "Aucune"}
+              tone={self?.safeties.length ? "good" : "neutral"}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-cream/40">
+              Bornes posées
+            </span>
+            {self?.distance_cards.map((card) => (
+              <GameCard
+                key={card.id}
+                type={card.card_type}
+                size="small"
+                className="scale-[.55] origin-left -mr-8"
+              />
+            ))}
+            {state.discard_top && (
+              <>
+                <span className="ml-auto text-[9px] font-bold uppercase tracking-wider text-cream/40">
+                  Défausse
+                </span>
+                <GameCard type={state.discard_top.card_type} size="small" className="scale-[.55] origin-right -mr-8" />
+              </>
+            )}
+          </div>
+        </section>
+
+        <section className="game-bottom">
+          <div className="game-hand-panel">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="eyebrow text-cream/45">Votre main</p>
+                <h2 className="mt-1 font-display text-lg font-extrabold text-cream">
+                  {state.can_draw
+                    ? "Piochez pour commencer votre tour"
+                    : state.can_pass
+                      ? "Répondez à l'attaque"
+                      : "Choisissez une carte"}
+                </h2>
+              </div>
+              <span className="rounded-full bg-white/8 px-3 py-1 text-[10px] font-bold text-cream/55">
+                {state.hand.length} cartes
+              </span>
+            </div>
+            <div className="game-hand">
+              {state.hand.map((card) => {
+                const playable = state.legal_actions.some(
+                  (action) => action.card_id === card.id,
+                );
+                return (
+                  <GameCard
+                    key={card.id}
+                    type={card.card_type}
+                    selected={selectedCardId === card.id}
+                    disabled={!playable && !state.can_discard}
+                    onClick={() => {
+                      setSelectedCardId(card.id);
+                      setSelectedTargetId("");
+                      setMessage("");
+                    }}
+                  />
+                );
+              })}
+            </div>
+            {targetOptions.length > 0 && (
+              <label className="mt-4 flex flex-wrap items-center gap-3 text-xs font-bold text-cream/70">
+                Cible de l'attaque
+                <select
+                  className="rounded-xl border border-white/15 bg-forest-950 px-3 py-2 text-sm text-cream"
+                  value={selectedTargetId}
+                  onChange={(event) => setSelectedTargetId(event.target.value)}
+                >
+                  <option value="">Choisir un joueur</option>
+                  {targetOptions.map((action) => {
+                    const target = state.players.find(
+                      (player) => player.player_id === action.target_player_id,
+                    );
+                    return (
+                      <option key={action.target_player_id} value={action.target_player_id ?? ""}>
+                        {target?.display_name ?? "Adversaire"}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+            )}
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              {state.can_draw && (
+                <Button disabled={isActing} onClick={() => sendAction("draw")}>
+                  Piocher
+                </Button>
+              )}
+              <Button
+                disabled={isActing || !selectedPlay}
+                onClick={playSelectedCard}
+              >
+                Jouer la carte <ArrowRight size={16} />
+              </Button>
+              {state.can_discard && (
+                <Button
+                  variant="outline"
+                  className="border-white/15 bg-white/5 text-cream hover:bg-white/10"
+                  disabled={isActing || !selectedCardId}
+                  onClick={discardSelectedCard}
+                >
+                  <Trash2 size={15} /> Défausser
+                </Button>
+              )}
+              {state.can_pass && (
+                <Button
+                  variant="outline"
+                  className="border-white/15 bg-white/5 text-cream hover:bg-white/10"
+                  disabled={isActing}
+                  onClick={() => sendAction("pass")}
+                >
+                  Passer
+                </Button>
+              )}
+            </div>
+          </div>
+          <aside className="game-log-panel">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-2 text-sm font-extrabold text-cream">
+                <History size={16} /> Actions récentes
+              </span>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-cream/35">
+                En direct
+              </span>
+            </div>
+            <ol className="mt-4 space-y-4">
+              {[...(snapshot?.events ?? [])].reverse().slice(0, 8).map((event) => (
+                <li className="game-log-item" key={event.id}>
+                  <span className={`game-log-dot ${event.event_type === "game.action" ? "active" : ""}`} />
+                  <span>
+                    {describeLiveEvent(event, state)}
+                    <small>{new Date(event.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</small>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </aside>
+        </section>
+      </div>
+      {game.status === "finished" && (
+        <div className="mt-6 text-center">
+          <Button onClick={() => navigate(`/result/${game.id}`)}>
+            Voir le résultat <Trophy size={16} />
+          </Button>
+        </div>
+      )}
+      <p className="mt-4 text-center text-[10px] text-stone-500">
+        Les coups sont validés par le serveur. Les bots jouent automatiquement.
       </p>
     </div>
   );

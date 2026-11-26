@@ -9,6 +9,7 @@ from .models import Game
 from .permissions import CanViewGame, IsGameHost, IsGameParticipant
 from .serializers import GameCreateSerializer, GameReadSerializer, JoinGameSerializer, ReadySerializer
 from .services import (
+    apply_solo_action,
     create_game,
     get_game_for_user,
     join_game,
@@ -140,3 +141,47 @@ class GameStartView(APIView):
         game = start_game(game_id=game_id, user=request.user)
         game = get_game_for_user(game_id=game.pk, user=request.user)
         return Response(GameReadSerializer(game).data)
+
+
+class SoloActionView(APIView):
+    permission_classes = [IsAuthenticated, IsGameParticipant]
+
+    def post(self, request, game_id):
+        from rest_framework.exceptions import ValidationError
+        from uuid import UUID
+
+        game = get_game_for_user(game_id=game_id, user=request.user)
+        self.check_object_permissions(request, game)
+
+        if game.mode != "solo":
+            raise ValidationError("Cet endpoint est réservé au mode solo.")
+
+        action = request.data.get("action")
+        card_id = request.data.get("card_id")
+        target_player_id = request.data.get("target_player_id")
+        expected_version = request.data.get("state_version")
+        request_id_str = request.data.get("request_id")
+
+        if not isinstance(action, str):
+            raise ValidationError("Le champ 'action' est requis.")
+        if not isinstance(expected_version, int):
+            raise ValidationError("Le champ 'state_version' (entier) est requis.")
+        try:
+            request_id = UUID(str(request_id_str))
+        except (TypeError, ValueError, AttributeError):
+            raise ValidationError("Un request_id UUID valide est requis.")
+
+        game, duplicate = apply_solo_action(
+            game_id=game_id,
+            user=request.user,
+            request_id=request_id,
+            expected_version=expected_version,
+            action=action,
+            card_id=card_id,
+            target_player_id=target_player_id,
+        )
+        game = get_game_for_user(game_id=game.pk, user=request.user)
+        response_data = GameReadSerializer(game).data
+        response_data["state_version"] = game.state_version
+        response_data["duplicate"] = duplicate
+        return Response(response_data)

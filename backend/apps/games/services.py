@@ -1,6 +1,9 @@
+import asyncio
 import hashlib
 import hmac
+import random
 import secrets
+from collections.abc import Callable, Mapping
 from datetime import timedelta
 from uuid import UUID
 
@@ -12,13 +15,18 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 
 from apps.accounts.models import User
 from apps.statistics.models import PlayerStats
-from domain.game_ai import Difficulty
+from domain.game_ai import AIConfig, Difficulty
+from domain.game_ai.observation import build_observation
+from domain.game_ai.runner import drive_automatic_turn
+from domain.game_ai.strategies import choose_action
 from domain.game_engine.engine import (
     RuleViolation,
+    Transition,
     apply_action,
+    legal_plays,
     new_game,
 )
-from domain.game_engine.models import GamePhase, state_from_dict, state_to_dict
+from domain.game_engine.models import GamePhase, GameState, state_from_dict, state_to_dict
 
 from .events import record_game_event
 from .models import Game, GameEvent, GameParticipant, GameResult
@@ -599,3 +607,228 @@ def finish_game(
             },
         )
     return game
+
+
+def _run_bot_turn_sync(
+    state: GameState,
+    bot_configs: Mapping[str, AIConfig],
+    player_id: str,
+    on_transition: Callable[[Transition], None],
+) -> GameState:
+    """Synchronous wrapper to run a single bot turn without async context issues.
+
+    This avoids the Django SynchronousOnlyOperation error by not using
+    asyncio for the actual bot decision making - the strategy is pure sync.
+    """
+    config = bot_configs[player_id]
+    random_source = random.Random(config.seed)
+    current = state
+
+    while True:
+        if current.phase == GamePhase.FINISHED:
+            return current
+        active_id = (
+            current.pending_response_player_id
+            if current.phase == GamePhase.RESPONSE
+            else current.active_player.player_id
+        )
+        if active_id != player_id:
+            return current
+
+        observation = build_observation(current, player_id)
+        command = choose_action(
+            observation,
+            legal_plays(current, player_id),
+            difficulty=config.difficulty,
+            rng=random_source,
+        )
+        transition = apply_action(
+            current,
+            player_id=player_id,
+            **command.to_engine_kwargs(),
+        )
+        current = transition.state
+        on_transition(transition)
+
+
+def apply_solo_action(
+    *,
+    game_id,
+    user: User,
+    request_id: UUID,
+    expected_version: int,
+    action: str,
+    card_id: str | None = None,
+    target_player_id: str | None = None,
+):
+    """Validate, apply and persist one player command in solo mode, then run AI turns.
+
+    The client supplies intent only. The engine state, acting seat and result
+    are all loaded and validated on the server while the game row is locked.
+    After the human action, all bot turns are played automatically until the
+    human player is the active player again or the game ends.
+    """
+    command = {
+        "action": action,
+        "card_id": card_id,
+        "target_player_id": target_player_id,
+    }
+    with transaction.atomic():
+        game = _lock_game(game_id)
+        participant = _participant(game, user)
+
+        previous = GameEvent.objects.filter(
+            game=game, actor=user, request_id=request_id
+        ).first()
+        if previous:
+            if previous.public_payload.get("client_action") != command:
+                raise GameConflict("Cet identifiant de commande a déjà été utilisé.")
+            return game, True
+
+        if game.mode != Game.Mode.SOLO:
+            raise GameConflict("Les commandes solo sont réservées au mode solo.")
+        if game.status != Game.Status.ACTIVE:
+            raise GameConflict("Cette partie n'accepte plus de coups.")
+        if (
+            isinstance(expected_version, bool)
+            or not isinstance(expected_version, int)
+            or expected_version != game.state_version
+        ):
+            raise GameConflict(
+                "L'état de la partie a changé. Reconnectez-vous pour obtenir le nouvel état."
+            )
+        if not isinstance(game.state, dict) or not game.state.get("players"):
+            raise GameConflict("L'état de la partie est indisponible.")
+
+        try:
+            current_state = state_from_dict(game.state)
+            transition = apply_action(
+                current_state,
+                player_id=str(participant.pk),
+                action=action,
+                card_id=card_id,
+                target_player_id=target_player_id,
+            )
+        except RuleViolation as exc:
+            raise GameActionRejected(str(exc), exc.code) from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GameConflict("L'état enregistré de la partie est invalide.") from exc
+
+        game.state = state_to_dict(transition.state)
+        game.save(update_fields=["state", "updated_at"])
+
+        participants = list(
+            GameParticipant.objects.select_for_update()
+            .filter(game=game)
+            .order_by("seat_number")
+        )
+        participants_by_id = {str(item.pk): item for item in participants}
+
+        # Build bot configurations for automatic play
+        bot_configs = {
+            str(bot.pk): AIConfig(difficulty=Difficulty(bot.bot_difficulty or Difficulty.NORMAL.value))
+            for bot in participants
+            if bot.kind == GameParticipant.Kind.BOT
+        }
+
+        # Helper to persist state, events, and update kilometers
+        def persist_transition(trans_state, trans_events, actor_user_id=None):
+            game.state = state_to_dict(trans_state)
+            game.save(update_fields=["state", "updated_at"])
+
+            for engine_player in trans_state.players:
+                db_player = participants_by_id.get(engine_player.player_id)
+                if db_player is None:
+                    raise GameConflict("Le moteur référence un siège inexistant.")
+                if db_player.kilometers != engine_player.distance:
+                    db_player.kilometers = engine_player.distance
+                    db_player.save(update_fields=["kilometers"])
+
+            public_events = []
+            private_events = {}
+            for engine_event in trans_events:
+                item = {
+                    "event_type": engine_event.event_type,
+                    "actor_player_id": engine_event.actor_player_id,
+                    "target_player_id": engine_event.target_player_id,
+                    "details": engine_event.details,
+                }
+                if engine_event.private_to_player_id:
+                    private_recipient = participants_by_id.get(
+                        engine_event.private_to_player_id
+                    )
+                    if private_recipient and private_recipient.user_id:
+                        private_item = {
+                            **item,
+                            "card_id": engine_event.card_id,
+                            "card_type": engine_event.card_type,
+                        }
+                        private_events.setdefault(str(private_recipient.user_id), []).append(
+                            private_item
+                        )
+                else:
+                    item.update(
+                        card_id=engine_event.card_id,
+                        card_type=engine_event.card_type,
+                    )
+                public_events.append(item)
+
+            record_game_event(
+                game,
+                "game.action",
+                actor=user if actor_user_id else None,
+                public_payload={
+                    "client_action": command if actor_user_id else {"type": "bot_action"},
+                    "action": action if actor_user_id else "bot_play",
+                    "events": public_events,
+                },
+                private_payloads={
+                    user_id: {"events": events}
+                    for user_id, events in private_events.items()
+                },
+                request_id=request_id if actor_user_id else None,
+            )
+
+        # Persist the human action first
+        persist_transition(transition.state, transition.events, actor_user_id=user.pk)
+
+        # Run automatic bot turns until it's the human's turn or game ends
+        current_state = transition.state
+        while current_state.phase != GamePhase.FINISHED:
+            # Check if it's a bot's turn
+            player_id = (
+                current_state.pending_response_player_id
+                if current_state.phase == GamePhase.RESPONSE
+                else current_state.active_player.player_id
+            )
+            if player_id not in bot_configs:
+                break  # Human's turn or no bots
+
+            # Drive the bot's turn using a synchronous helper
+            current_state = _run_bot_turn_sync(
+                current_state,
+                bot_configs,
+                player_id,
+                lambda t: persist_transition(t.state, t.events, actor_user_id=None),
+            )
+
+        # Check if game finished during bot turns
+        if current_state.phase == GamePhase.FINISHED:
+            winner_id = (
+                current_state.winner_ids[0]
+                if current_state.winner_ids
+                else max(
+                    current_state.players,
+                    key=lambda player: player.distance,
+                ).player_id
+            )
+            finish_game(
+                game_id=game.pk,
+                winner_participant_id=winner_id,
+                kilometers_by_participant={
+                    str(item.pk): item.kilometers for item in participants
+                },
+            )
+
+        game.refresh_from_db()
+        return game, False

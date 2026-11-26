@@ -10,6 +10,7 @@ from .views import (
     GameReadyView,
     GameStartView,
     MyGamesView,
+    SoloActionView,
 )
 
 urlpatterns = [
@@ -20,6 +21,7 @@ urlpatterns = [
     path("games/<uuid:game_id>/leave/", GameLeaveView.as_view(), name="game-leave"),
     path("games/<uuid:game_id>/ready/", GameReadyView.as_view(), name="game-ready"),
     path("games/<uuid:game_id>/start/", GameStartView.as_view(), name="game-start"),
+    path("games/<uuid:game_id>/action/", SoloActionView.as_view(), name="game-solo-action"),
     path(
         "games/<uuid:game_id>/ws-ticket/",
         GameWebSocketTicketView.as_view(),
