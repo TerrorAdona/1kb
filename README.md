@@ -1,117 +1,304 @@
-# Mille Bornes — backend
+# Mille Bornes - Jeu de Cartes en Ligne
 
-Le backend Django fournit les comptes, les salons et leur cycle de vie, l’historique/statistiques et le multijoueur temps réel avec Django Channels et Redis. Le moteur pur de règles dans `backend/domain/game_engine/` valide les commandes côté serveur ; l’état complet reste en base et chaque socket reçoit une projection qui masque les mains adverses. Le mode solo conserve ses routes existantes et initialise le même état moteur, tandis que les commandes WebSocket sont réservées aux parties multijoueur.
+Mille Bornes est un jeu de cartes classique français développé avec **React** (frontend), **Django** (backend), **PostgreSQL** (base de données), **Redis** (cache/WebSockets) et **Nginx** (reverse proxy).
 
-## Démarrage avec Docker
+## 🚀 Démarrage Rapide
 
-Prérequis : Docker avec le plugin Compose.
+### Prérequis
+- Docker 24+ et Docker Compose 2+
+- 2 GB RAM minimum
+- Ports 80, 443, 5173, 8000, 5432, 6379 disponibles
+
+### Installation en Production
 
 ```bash
+# 1. Cloner le dépôt
+git clone <repository-url>
+cd 1kb
+
+# 2. Configurer les variables d'environnement
 cp .env.example .env
-# Remplacer DJANGO_SECRET_KEY et les mots de passe dans .env.
-docker compose up --build
+# Éditer .env avec vos valeurs (IMPORTANT: changer tous les mots de passe!)
+
+# 3. Générer les certificats SSL (auto-signés pour test, ou utiliser Let's Encrypt)
+mkdir -p nginx/ssl
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout nginx/ssl/key.pem -out nginx/ssl/cert.pem \
+  -subj "/CN=yourdomain.com"
+
+# 4. Lancer les services
+docker compose up -d --build
+
+# 5. Vérifier les logs
+docker compose logs -f
 ```
 
-## Tester le moteur de jeu
-
-Depuis `backend/`, installez les dépendances de développement et exécutez les
-tests du domaine sans démarrer Django, PostgreSQL ou Redis :
+### Développement Local
 
 ```bash
-python -m pip install -r requirements-dev.txt
-python -m pytest -q tests/test_game_engine.py
+# 1. Configurer l'environnement de développement
+cp .env.development .env
+
+# 2. Lancer avec hot-reloading
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build
+
+# 3. Accéder à l'application
+# Frontend: http://localhost:5173
+# API: http://localhost:8000/api/v1/
+# Admin Django: http://localhost:8000/admin/
 ```
 
-Le ruleset par défaut et ses variantes sont décrits dans
-[`backend/domain/game_engine/RULESET.md`](backend/domain/game_engine/RULESET.md).
+## 📁 Structure du Projet
 
-L’API est disponible sur `http://localhost:8000/api/v1/`. Au démarrage local, le conteneur applique les migrations puis lance Daphne (HTTP + WebSocket).
+```
+1kb/
+├── backend/                 # Django API
+│   ├── apps/
+│   │   ├── accounts/       # Authentification JWT
+│   │   ├── games/          # Logique de jeu, parties
+│   │   ├── realtime/       # WebSockets (Django Channels)
+│   │   └── statistics/     # Stats & Leaderboard
+│   ├── config/             # Settings Django
+│   ├── domain/             # Moteur de jeu pur (Python)
+│   │   ├── game_engine/    # Règles, état, transitions
+│   │   └── game_ai/        # IA pour mode solo
+│   ├── Dockerfile          # Image production
+│   └── requirements.txt
+├── frontend/               # React + Vite
+│   ├── src/
+│   │   ├── features/       # Pages & composants
+│   │   ├── shared/         # API, types, composants UI
+│   ├── nginx.conf          # Config nginx (prod)
+│   ├── Dockerfile          # Image production
+│   └── Dockerfile.dev      # Image développement
+├── nginx/                  # Reverse proxy production
+│   ├── nginx.conf
+│   ├── proxy_params
+│   └── ssl/                # Certificats SSL
+├── init-scripts/           # Scripts d'init PostgreSQL
+├── docker-compose.yml      # Production
+├── docker-compose.override.yml  # Développement
+├── .env.example            # Template variables
+├── .env.development        # Variables dev
+└── README.md
+```
 
-Créer un compte administrateur :
+## 🔧 Configuration
+
+### Variables d'Environnement Principales
+
+| Variable | Description | Défaut | Requis |
+|----------|-------------|--------|--------|
+| `DJANGO_SECRET_KEY` | Clé secrète Django (50+ chars) | - | **Oui** |
+| `DJANGO_DEBUG` | Mode debug | `false` | Non |
+| `DJANGO_ALLOWED_HOSTS` | Hosts autorisés (CSV) | `localhost,127.0.0.1` | Non |
+| `POSTGRES_PASSWORD` | Mot de passe PostgreSQL | - | **Oui** |
+| `POSTGRES_DB` | Nom de la base | `millebornes` | Non |
+| `POSTGRES_USER` | Utilisateur PostgreSQL | `millebornes` | Non |
+| `FRONTEND_ORIGINS` | Origines CORS (CSV) | `http://localhost:5173` | Non |
+| `CSRF_TRUSTED_ORIGINS` | Origins CSRF (CSV) | `http://localhost:5173` | Non |
+| `REDIS_URL` | URL Redis | `redis://redis:6379/0` | Non |
+
+### Génération de Secrets
 
 ```bash
+# Django SECRET_KEY
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+
+# PostgreSQL password
+openssl rand -base64 32
+
+# JWT signing (utilise DJANGO_SECRET_KEY)
+```
+
+## 🐳 Commandes Docker Utiles
+
+### Gestion des Services
+```bash
+# Démarrer en production
+docker compose up -d
+
+# Démarrer en développement (avec hot-reload)
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+
+# Arrêter
+docker compose down
+
+# Arrêter + supprimer volumes (⚠️ perte données)
+docker compose down -v
+
+# Redémarrer un service
+docker compose restart api
+
+# Voir les logs
+docker compose logs -f api
+docker compose logs -f --tail=100 postgres
+```
+
+### Base de Données
+```bash
+# Migrations
+docker compose exec api python manage.py migrate
+
+# Créer migration
+docker compose exec api python manage.py makemigrations
+
+# Superuser Django
 docker compose exec api python manage.py createsuperuser
+
+# Shell Django
+docker compose exec api python manage.py shell
+
+# Backup PostgreSQL
+docker compose exec postgres pg_dump -U millebornes millebornes > backup.sql
+
+# Restore
+docker compose exec -T postgres psql -U millebornes millebornes < backup.sql
 ```
 
-## Endpoints
-
-Toutes les routes ci-dessous sont préfixées par `/api/v1/`.
-
-| Méthode | Route | Accès / rôle |
-|---|---|---|
-| `GET` | `health/` | Santé du service |
-| `GET` | `auth/csrf/` | Initialise le cookie CSRF pour les appels navigateur |
-| `POST` | `auth/register/` | Créer un compte |
-| `POST` | `auth/login/` | Connexion ; renvoie un access JWT et pose un refresh HttpOnly |
-| `POST` | `auth/refresh/` | Renouveler l’access JWT avec le cookie refresh |
-| `POST` | `auth/logout/` | Révoquer le refresh et supprimer son cookie |
-| `GET`, `PATCH` | `auth/me/` | Lire ou modifier son nom d’affichage |
-| `GET`, `POST` | `games/` | Lister les salons publics disponibles / créer un salon |
-| `GET` | `games/mine/` | Lister ses propres parties |
-| `GET` | `games/{id}/` | Détail ; une partie privée est réservée à ses participants |
-| `POST` | `games/{id}/join/` | Rejoindre ; le code est requis pour un salon privé |
-| `POST` | `games/{id}/leave/` | Quitter un salon en attente ; l’hôte est transféré |
-| `PATCH` | `games/{id}/ready/` | Modifier son état prêt/non prêt |
-| `POST` | `games/{id}/start/` | Démarrer (hôte uniquement, joueurs humains prêts) |
-| `POST` | `games/{id}/ws-ticket/` | Obtenir un ticket WebSocket bref et à usage unique |
-| `GET` | `history/` | Historique personnel des parties terminées |
-| `GET` | `stats/me/` | Statistiques personnelles |
-
-Les réponses utilisent JSON. Les actions de salon et de jeu sont atomiques et journalisées. Le WebSocket est authentifié par ticket bref à usage unique ; il transmet un snapshot à la connexion/reconnexion, la présence, les événements et les coups multijoueur validés par le moteur. Un abandon pendant une partie annule la course tout en conservant son état. Les codes d’invitation ne sont stockés qu’en condensat et ne sont renvoyés qu’à la création.
-
-## Exemple de parcours API
-
-1. `POST /auth/register/` avec `{"email":"joueur@example.com","display_name":"Joueur","password":"..."}`.
-2. Pour un navigateur, appeler `GET /auth/csrf/` avec les cookies activés ; conserver le cookie `csrftoken` et envoyer sa valeur dans l’en-tête `X-CSRFToken` pour login/refresh/logout.
-3. `POST /auth/login/` avec email/mot de passe. Garder l’`access` renvoyé en mémoire ; le cookie `refresh_token` est HttpOnly.
-4. Sur les appels protégés, envoyer `Authorization: Bearer <access>`.
-5. `POST /games/` avec `{"mode":"multiplayer","visibility":"private","max_players":4}`. Copier le `invite_code` renvoyé : il n’est pas récupérable ensuite.
-6. Les autres joueurs appellent `POST /games/{id}/join/` avec `{"invite_code":"..."}`. Chacun peut appeler `PATCH /games/{id}/ready/` avec `{"is_ready":true}` ; l’hôte appelle ensuite `POST /games/{id}/start/`.
-
-Pour le WebSocket, appeler `POST /games/{id}/ws-ticket/`, puis ouvrir le chemin renvoyé en ajoutant `?ticket=<ticket>`. Le ticket expire rapidement et ne peut être consommé qu’une fois. Le serveur envoie `lobby.snapshot` dans un salon et `game.snapshot` pendant une partie ; les changements sont envoyés sous `game.event`. Les commandes de partie utilisent `game.action` avec `request_id`, `state_version`, `action` (`draw`, `play`, `discard` ou `pass`) et, si nécessaire, `card_id`/`target_player_id`. Un abandon est envoyé avec `game.abandon`. En cas de version périmée, le serveur renvoie une erreur et un snapshot à jour.
-
-Exemple `curl` minimal (remplacer les valeurs et recopier le `csrfToken`, l’`access` et le code d’invitation renvoyés) :
-
+### Cache & Redis
 ```bash
-curl -i http://localhost:8000/api/v1/health/
+# Vider le cache Redis
+docker compose exec redis redis-cli FLUSHALL
 
-# Inscription
-curl -i -X POST http://localhost:8000/api/v1/auth/register/ \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"joueur@example.com","display_name":"Joueur","password":"Valid-password-481!Card"}'
-
-# Obtenir le cookie et le jeton CSRF
-curl -s -c /tmp/mille-bornes-cookies.txt \
-  http://localhost:8000/api/v1/auth/csrf/
-
-# Connexion : envoyer la valeur csrfToken dans X-CSRFToken
-curl -i -X POST http://localhost:8000/api/v1/auth/login/ \
-  -b /tmp/mille-bornes-cookies.txt -c /tmp/mille-bornes-cookies.txt \
-  -H 'Content-Type: application/json' \
-  -H 'X-CSRFToken: <csrfToken>' \
-  -d '{"email":"joueur@example.com","password":"Valid-password-481!Card"}'
-
-# Créer un salon privé avec le jeton access renvoyé par login
-curl -i -X POST http://localhost:8000/api/v1/games/ \
-  -H 'Authorization: Bearer <access>' \
-  -H 'Content-Type: application/json' \
-  -d '{"mode":"multiplayer","visibility":"private","max_players":4}'
-
-# Consulter son profil
-curl -i http://localhost:8000/api/v1/auth/me/ \
-  -H 'Authorization: Bearer <access>'
+# Info Redis
+docker compose exec redis redis-cli INFO
 ```
 
-## Tests et commandes utiles
+### Frontend
+```bash
+# Build production local
+cd frontend && pnpm run build
 
-Avec les services Compose lancés :
+# Preview build
+cd frontend && pnpm run preview
+
+# Type checking
+cd frontend && pnpm run typecheck
+```
+
+## 🌐 Architecture Réseau
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Client    │────▶│    Nginx    │────▶│   Frontend  │
+│  (Browser)  │     │  (SSL/Proxy)│     │  (React)    │
+└─────────────┘     └──────┬──────┘     └─────────────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+         ┌─────────┐ ┌──────────┐ ┌──────────┐
+         │  API    │ │  Redis   │ │PostgreSQL│
+         │ (Django)│ │(Cache/WS)│ │  (Data)  │
+         └─────────┘ └──────────┘ └──────────┘
+```
+
+### Ports
+| Service | Port Interne | Port Externe (Prod) | Port Externe (Dev) |
+|---------|-------------|---------------------|-------------------|
+| Nginx   | 80, 443     | 80, 443             | -                 |
+| Frontend| 80          | via Nginx           | 5173              |
+| API     | 8000        | via Nginx           | 8000              |
+| PostgreSQL| 5432      | -                   | 5432              |
+| Redis   | 6379        | -                   | 6379              |
+
+## 🔐 Sécurité
+
+### Production
+- ✅ HTTPS obligatoire (Nginx + SSL)
+- ✅ Cookies Secure + HttpOnly + SameSite=Lax
+- ✅ CSRF protection
+- ✅ CORS restrictif
+- ✅ Rate limiting (API + Auth)
+- ✅ Headers de sécurité (HSTS, CSP, X-Frame-Options)
+- ✅ Utilisateur non-root dans containers
+- ✅ Secrets via variables d'environnement
+
+### Authentification
+- JWT Access Token (15 min) + Refresh Token (7 jours, rotation)
+- Blacklist des tokens révoqués
+- Mots de passe hashés (PBKDF2 Django)
+
+## 🧪 Tests
 
 ```bash
-docker compose exec api python manage.py check
+# Backend tests
+docker compose exec api python -m pytest tests/ -v
 docker compose exec api python manage.py test
-docker compose exec api python manage.py makemigrations --check --dry-run
+
+# Frontend tests (si configurés)
+cd frontend && pnpm run test
 ```
 
-Pour un démarrage local sans Docker, installer `backend/requirements.txt`, lancer PostgreSQL et Redis, puis définir les variables de `.env.example` (notamment les hôtes `127.0.0.1`) avant `python backend/manage.py migrate` et `daphne -p 8000 --bind 127.0.0.1 config.asgi:application` depuis `backend/`.
+## 📊 Monitoring & Logs
 
-**Production :** remplacer les secrets de développement, définir `DJANGO_DEBUG=false`, activer les cookies Secure et HTTPS, ajuster les origines CORS/CSRF, et exécuter les migrations comme étape de déploiement contrôlée plutôt qu’à chaque démarrage de worker.
+```bash
+# Health checks
+curl https://yourdomain.com/health
+curl https://yourdomain.com/api/health
+
+# Logs structurés
+docker compose logs --since=1h api | jq .
+
+# Métriques Redis
+docker compose exec redis redis-cli INFO stats
+```
+
+## 🔄 Déploiement Continu (CI/CD)
+
+Exemple GitHub Actions :
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build & Push
+        run: |
+          docker compose -f docker-compose.yml build
+          docker compose -f docker-compose.yml push
+      - name: Deploy to server
+        run: ssh user@server "cd /app && docker compose pull && docker compose up -d"
+```
+
+## 🐛 Dépannage
+
+### Problèmes Courants
+
+| Problème | Solution |
+|----------|----------|
+| `Connection refused` PostgreSQL | Attendre healthcheck, vérifier `POSTGRES_PASSWORD` |
+| `CSRF Failed` | Vérifier `CSRF_TRUSTED_ORIGINS` et `FRONTEND_ORIGINS` |
+| WebSocket ne connecte pas | Vérifier proxy Nginx `/ws/` et `VITE_WS_BASE_URL` |
+| Migrations échouent | `docker compose exec api python manage.py migrate --fake-initial` |
+| Static files 404 | `docker compose exec api python manage.py collectstatic --noinput` |
+
+### Logs de Debug
+```bash
+# Activer debug Django
+docker compose exec api python -c "import os; os.environ['DJANGO_DEBUG']='true'"
+
+# Vérifier config Django
+docker compose exec api python manage.py check --deploy
+```
+
+## 📝 Licence
+
+Ce projet est sous licence MIT. Voir `LICENSE` pour plus de détails.
+
+## 🤝 Contribution
+
+1. Fork le projet
+2. Créer une branche (`git checkout -b feature/amazing-feature`)
+3. Commit (`git commit -m 'Add amazing feature'`)
+4. Push (`git push origin feature/amazing-feature`)
+5. Ouvrir une Pull Request
+
+---
+
+**Mille Bornes** - Prenez la route, à votre rythme ! 🚗💨

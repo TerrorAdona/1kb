@@ -1,49 +1,129 @@
+version: '3.8'
+
 services:
-  db:
+  # PostgreSQL Database
+  postgres:
     image: postgres:17-alpine
+    container_name: millebornes-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-millebornes}
       POSTGRES_USER: ${POSTGRES_USER:-millebornes}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-millebornes-dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-millebornes} -d ${POSTGRES_DB:-millebornes}"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - millebornes-network
 
+  # Redis for caching and WebSocket channels
   redis:
     image: redis:7-alpine
+    container_name: millebornes-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 10s
       timeout: 3s
       retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - millebornes-network
 
+  # Django Backend API
   api:
     build:
       context: ./backend
+      dockerfile: Dockerfile
+    container_name: millebornes-api
     env_file:
       - path: .env
         required: false
     environment:
-      POSTGRES_HOST: db
+      # Database
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-millebornes}
+      POSTGRES_USER: ${POSTGRES_USER:-millebornes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Redis
       REDIS_URL: redis://redis:6379/0
+      # Django
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,api}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-UTC}
+      # CORS/CSRF
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-https://localhost}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://localhost}
+      CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-true}
+      CSRF_COOKIE_SAMESITE: ${CSRF_COOKIE_SAMESITE:-Lax}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      # JWT
+      JWT_REFRESH_COOKIE_SECURE: ${JWT_REFRESH_COOKIE_SECURE:-true}
+      JWT_REFRESH_COOKIE_SAMESITE: ${JWT_REFRESH_COOKIE_SAMESITE:-Lax}
+      JWT_REFRESH_COOKIE_DOMAIN: ${JWT_REFRESH_COOKIE_DOMAIN}
     command: >
-      sh -c "python manage.py migrate &&
-             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+      sh -c "
+        until python manage.py migrate --noinput 2>&1; do
+          echo 'Waiting for database to be ready...'
+          sleep 2
+        done &&
+        python manage.py collectstatic --noinput &&
+        daphne -b 0.0.0.0 -p 8000 config.asgi:application
+      "
     volumes:
-      - ./backend:/app
-    ports:
-      - "8000:8000"
+      - static_volume:/app/static
+      - media_volume:/app/media
+    expose:
+      - "8000"
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - millebornes-network
+
+  # Nginx Reverse Proxy (Frontend + API Gateway)
+  nginx:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: millebornes-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - static_volume:/var/www/static:ro
+      - media_volume:/var/www/media:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - millebornes-network
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  static_volume:
+    driver: local
+  media_volume:
+    driver: local
+
+networks:
+  millebornes-network:
+    driver: bridge
