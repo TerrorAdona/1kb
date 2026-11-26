@@ -138,6 +138,287 @@ button {
   }
 }
 
+/* Turn change animations */
+@keyframes turn-banner-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes turn-banner-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(232, 135, 54, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(232, 135, 54, 0);
+  }
+}
+
+@keyframes playable-card-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(232, 135, 54, 0.4), 0 8px 15px -12px rgba(0, 0, 0, 0.75);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(232, 135, 54, 0.15), 0 8px 15px -12px rgba(0, 0, 0, 0.75);
+  }
+}
+
+@keyframes playable-card-pulse {
+  0%, 100% {
+    transform: translateY(-8px) rotate(-1.5deg) scale(1);
+  }
+  50% {
+    transform: translateY(-10px) rotate(-1.5deg) scale(1.02);
+  }
+}
+
+.turn-banner {
+  animation: turn-banner-slide 400ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
+             turn-banner-pulse 2000ms ease-in-out 3;
+}
+
+.turn-banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 20px;
+  font-size: 14px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.turn-banner-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(232, 135, 54, 0.15);
+  color: #e88736;
+  animation: turn-banner-pulse 1500ms ease-in-out infinite;
+}
+
+.playable-card-highlight {
+  animation: playable-card-glow 1800ms ease-in-out infinite,
+             playable-card-pulse 2000ms ease-in-out infinite;
+  z-index: 10 !important;
+  outline: 3px solid #efa95d;
+  outline-offset: 2px;
+}
+
+.turn-indicator-active {
+  animation: turn-banner-pulse 1000ms ease-in-out infinite;
+}
+
+.my-turn-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, rgba(232, 135, 54, 0.15), rgba(232, 135, 54, 0.08));
+  border: 1px solid rgba(232, 135, 54, 0.3);
+  color: #e88736;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  animation: turn-banner-pulse 2000ms ease-in-out infinite;
+}
+
+.my-turn-badge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e88736;
+  box-shadow: 0 0 0 3px rgba(232, 135, 54, 0.15);
+  animation: turn-banner-pulse 1000ms ease-in-out infinite;
+}
+
+/* Turn change notification toast */
+.turn-change-toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 16px;
+  background: rgba(28, 73, 57, 0.96);
+  padding: 14px 22px;
+  color: #f8f3e6;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 20px 40px -20px rgba(28, 73, 57, 0.6);
+  animation: turn-banner-slide 400ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.turn-change-toast.exiting {
+  animation: turn-banner-slide 300ms cubic-bezier(0.4, 0, 1, 1) reverse both;
+}
+
+.turn-change-toast-icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(232, 135, 54, 0.2);
+  color: #f0b36e;
+  animation: turn-banner-pulse 1500ms ease-in-out infinite;
+}
+
+
+/* Turn change animations */
+@keyframes turn-banner-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes turn-banner-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(232, 135, 54, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(232, 135, 54, 0);
+  }
+}
+
+@keyframes playable-card-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(232, 135, 54, 0.4), 0 8px 15px -12px rgba(0, 0, 0, 0.75);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(232, 135, 54, 0.15), 0 8px 15px -12px rgba(0, 0, 0, 0.75);
+  }
+}
+
+@keyframes playable-card-pulse {
+  0%, 100% {
+    transform: translateY(-8px) rotate(-1.5deg) scale(1);
+  }
+  50% {
+    transform: translateY(-10px) rotate(-1.5deg) scale(1.02);
+  }
+}
+
+.turn-banner {
+  animation: turn-banner-slide 400ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
+             turn-banner-pulse 2000ms ease-in-out 3;
+}
+
+.turn-banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 20px;
+  font-size: 14px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.turn-banner-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(232, 135, 54, 0.15);
+  color: #e88736;
+  animation: turn-banner-pulse 1500ms ease-in-out infinite;
+}
+
+.playable-card-highlight {
+  animation: playable-card-glow 1800ms ease-in-out infinite,
+             playable-card-pulse 2000ms ease-in-out infinite;
+  z-index: 10 !important;
+  outline: 3px solid #efa95d;
+  outline-offset: 2px;
+}
+
+.turn-indicator-active {
+  animation: turn-banner-pulse 1000ms ease-in-out infinite;
+}
+
+.my-turn-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, rgba(232, 135, 54, 0.15), rgba(232, 135, 54, 0.08));
+  border: 1px solid rgba(232, 135, 54, 0.3);
+  color: #e88736;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  animation: turn-banner-pulse 2000ms ease-in-out infinite;
+}
+
+.my-turn-badge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e88736;
+  box-shadow: 0 0 0 3px rgba(232, 135, 54, 0.15);
+  animation: turn-banner-pulse 1000ms ease-in-out infinite;
+}
+
+/* Turn change notification toast */
+.turn-change-toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 16px;
+  background: rgba(28, 73, 57, 0.96);
+  padding: 14px 22px;
+  color: #f8f3e6;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 20px 40px -20px rgba(28, 73, 57, 0.6);
+  animation: turn-banner-slide 400ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.turn-change-toast.exiting {
+  animation: turn-banner-slide 300ms cubic-bezier(0.4, 0, 1, 1) reverse both;
+}
+
+.turn-change-toast-icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(232, 135, 54, 0.2);
+  color: #f0b36e;
+  animation: turn-banner-pulse 1500ms ease-in-out infinite;
+}
+
 /* Welcome */
 .home-page {
   padding-top: 2px;

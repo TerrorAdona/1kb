@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowLeft,
@@ -273,6 +273,8 @@ function LiveSoloGame({ game }: { game: Game }) {
   const [selectedTargetId, setSelectedTargetId] = useState("");
   const [message, setMessage] = useState("");
   const [isActing, setIsActing] = useState(false);
+  const [turnNotification, setTurnNotification] = useState<{ show: boolean; message: string } | null>(null);
+  const wasMyTurnRef = useRef(false);
 
   useEffect(() => {
     const loadSnapshot = async () => {
@@ -305,6 +307,20 @@ function LiveSoloGame({ game }: { game: Game }) {
   }, [snapshot?.game?.id]);
 
   const state = snapshot?.state ?? null;
+
+  // Detect turn changes for solo (bot turns trigger state updates)
+  useEffect(() => {
+    if (!state) return;
+    const isMyTurn = state.active_player_id === state.viewer_player_id && state.phase !== "finished";
+    if (isMyTurn && !wasMyTurnRef.current) {
+      setTurnNotification({
+        show: true,
+        message: state.phase === "draw" ? "À vous de piocher !" : state.can_pass ? "Répondez à l'attaque !" : "À vous de jouer !"
+      });
+      setTimeout(() => setTurnNotification(null), 4000);
+    }
+    wasMyTurnRef.current = isMyTurn;
+  }, [state?.active_player_id, state?.phase, state?.can_pass]);
   const self = state?.players.find(
     (player) => player.player_id === state.viewer_player_id,
   );
@@ -418,6 +434,8 @@ function LiveSoloGame({ game }: { game: Game }) {
               : "À vous de jouer"
             : `Tour de l'adversaire (IA)`;
 
+  const isMyTurn = state && state.active_player_id === state.viewer_player_id && state.phase !== "finished";
+
   return (
     <div className="page-enter">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -434,6 +452,11 @@ function LiveSoloGame({ game }: { game: Game }) {
       {game.status === "cancelled" && (
         <div className="mb-4">
           <Notice>La partie a été annulée. L'état reste consultable.</Notice>
+        </div>
+      )}
+      {turnNotification && (
+        <div className="mb-4 turn-banner-enter">
+          <div className="turn-banner">{turnNotification.message}</div>
         </div>
       )}
 
@@ -602,17 +625,20 @@ function LiveSoloGame({ game }: { game: Game }) {
                 {state.hand.length} cartes
               </span>
             </div>
+
             <div className="game-hand">
               {state.hand.map((card) => {
                 const playable = state.legal_actions.some(
                   (action) => action.card_id === card.id,
                 );
+                const isPlayableNow = isMyTurn && playable;
                 return (
                   <GameCard
                     key={card.id}
                     type={card.card_type}
                     selected={selectedCardId === card.id}
                     disabled={!playable && !state.can_discard}
+                    className={isPlayableNow ? "playable-card-highlight" : undefined}
                     onClick={() => {
                       setSelectedCardId(card.id);
                       setSelectedTargetId("");
@@ -721,6 +747,8 @@ function LiveMultiplayerGame({ game }: { game: Game }) {
   const [selectedCardId, setSelectedCardId] = useState("");
   const [selectedTargetId, setSelectedTargetId] = useState("");
   const [message, setMessage] = useState("");
+  const [turnNotification, setTurnNotification] = useState<{ show: boolean; message: string } | null>(null);
+  const wasMyTurnRef = useRef(false);
   const { status: socketStatus, send } = useGameSocket(game.id, {
     onSnapshot: (next) => {
       setSnapshot(next);
@@ -767,6 +795,20 @@ function LiveMultiplayerGame({ game }: { game: Game }) {
     selectedPlays.find((action) => action.target_player_id === null) ??
     (selectedPlays.length === 1 ? selectedPlays[0] : undefined);
   const canSend = socketStatus === "connected" && game.status === "active";
+
+  // Detect turn changes for multiplayer
+  useEffect(() => {
+    if (!state) return;
+    const isMyTurn = state.active_player_id === state.viewer_player_id && state.phase !== "finished";
+    if (isMyTurn && !wasMyTurnRef.current) {
+      setTurnNotification({
+        show: true,
+        message: state.phase === "draw" ? "À vous de piocher !" : state.can_pass ? "Répondez à l'attaque !" : "À vous de jouer !"
+      });
+      setTimeout(() => setTurnNotification(null), 4000);
+    }
+    wasMyTurnRef.current = isMyTurn;
+  }, [state?.active_player_id, state?.phase, state?.can_pass]);
 
   function sendAction(action: string, extra: Record<string, unknown> = {}) {
     if (!snapshot) return;
@@ -850,6 +892,8 @@ function LiveMultiplayerGame({ game }: { game: Game }) {
               : "À vous de jouer"
             : `Au tour de ${activePlayer?.display_name ?? "l’adversaire"}`;
 
+  const isMyTurn = state && state.active_player_id === state.viewer_player_id && state.phase !== "finished";
+
   return (
     <div className="page-enter">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -870,6 +914,11 @@ function LiveMultiplayerGame({ game }: { game: Game }) {
       {game.status === "cancelled" && (
         <div className="mb-4">
           <Notice>La partie a été annulée après l’abandon d’un joueur. L’état reste consultable.</Notice>
+        </div>
+      )}
+      {turnNotification && (
+        <div className="mb-4 turn-banner-enter">
+          <div className="turn-banner">{turnNotification.message}</div>
         </div>
       )}
 
@@ -1041,17 +1090,20 @@ function LiveMultiplayerGame({ game }: { game: Game }) {
                 {state.hand.length} cartes
               </span>
             </div>
+
             <div className="game-hand">
               {state.hand.map((card) => {
                 const playable = state.legal_actions.some(
                   (action) => action.card_id === card.id,
                 );
+                const isPlayableNow = isMyTurn && playable;
                 return (
                   <GameCard
                     key={card.id}
                     type={card.card_type}
                     selected={selectedCardId === card.id}
                     disabled={!playable && !state.can_discard}
+                    className={isPlayableNow ? "playable-card-highlight" : undefined}
                     onClick={() => {
                       setSelectedCardId(card.id);
                       setSelectedTargetId("");
