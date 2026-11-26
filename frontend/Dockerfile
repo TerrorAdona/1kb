@@ -5,7 +5,11 @@ WORKDIR /app
 
 # Install dependencies
 COPY package.json pnpm-lock.yaml* ./
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
+RUN npm install -g pnpm \
+    && pnpm config set auto-install-peers true \
+    && (pnpm install --frozen-lockfile 2>/dev/null || pnpm install --lockfile-only) \
+    && pnpm approve-builds esbuild \
+    && pnpm install --frozen-lockfile
 
 # Copy source code
 COPY . .
