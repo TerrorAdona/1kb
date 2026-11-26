@@ -7,6 +7,10 @@ import {
   Pencil,
   Trophy,
   UserRound,
+  BarChart2,
+  Target,
+  Gamepad2,
+  Users,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../auth/authStore";
@@ -78,6 +82,8 @@ export function ProfilePage() {
     ? new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(user.date_joined))
     : "—";
 
+  const winRate = stats?.win_rate ?? 0;
+
   return (
     <div className="page-enter">
       <PageTitle
@@ -144,12 +150,33 @@ export function ProfilePage() {
           {loading ? (
             <div className="grid min-h-36 place-items-center rounded-3xl bg-white"><span className="loading-dot" /></div>
           ) : (
-            <div className="stats-grid">
-              <Stat label="Parties jouées" value={stats?.games_played ?? 0} />
-              <Stat label="Victoires" value={stats?.wins ?? 0} accent />
-              <Stat label="Taux de victoire" value={`${stats?.win_rate ?? 0}%`} />
-              <Stat label="Kilomètres cumulés" value={formatKm(stats?.total_kilometers ?? 0)} />
-            </div>
+            <>
+              <div className="stats-grid">
+                <Stat label="Parties jouées" value={stats?.games_played ?? 0} icon={<Gamepad2 size={18} />} />
+                <Stat label="Victoires" value={stats?.wins ?? 0} accent icon={<Trophy size={18} />} />
+                <Stat label="Défaites" value={stats?.losses ?? 0} icon={<Target size={18} />} />
+                <Stat label="Taux de victoire" value={`${winRate}%`} icon={<BarChart2 size={18} />} />
+                <Stat label="Kilomètres cumulés" value={formatKm(stats?.total_kilometers ?? 0)} icon={<MapPinned size={18} />} />
+                <Stat label="Meilleur score" value={formatKm(stats?.best_kilometers ?? 0)} icon={<Target size={18} />} />
+                <Stat label="Moyenne / partie" value={formatKm(stats?.average_kilometers ?? 0)} icon={<BarChart2 size={18} />} />
+                <Stat label="Parties solo" value={stats?.solo_games_played ?? 0} icon={<Gamepad2 size={18} />} />
+                <Stat label="Parties multi" value={stats?.multiplayer_games_played ?? 0} icon={<Users size={18} />} />
+              </div>
+
+              <div className="mt-6">
+                <h3 className="font-display text-lg font-extrabold text-cream mb-4">Répartition des résultats</h3>
+                <div className="chart-container">
+                  <WinRateChart winRate={winRate} />
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <h3 className="font-display text-lg font-extrabold text-cream mb-4">Types de parties</h3>
+                <div className="chart-container">
+                  <GameTypeChart solo={stats?.solo_games_played ?? 0} multiplayer={stats?.multiplayer_games_played ?? 0} />
+                </div>
+              </div>
+            </>
           )}
         </section>
       </div>
@@ -201,10 +228,13 @@ export function ProfilePage() {
   );
 }
 
-function Stat({ label, value, accent = false }: { label: string; value: string | number; accent?: boolean }) {
+function Stat({ label, value, accent = false, icon }: { label: string; value: string | number; accent?: boolean; icon?: React.ReactNode }) {
   return (
     <div className="stat-tile">
-      <span className="text-xs font-semibold text-stone-500">{label}</span>
+      <div className="flex items-center gap-2 mb-1">
+        {icon && <span className={accent ? "text-orange-600" : "text-forest/60"}>{icon}</span>}
+        <span className="text-xs font-semibold text-stone-500">{label}</span>
+      </div>
       <strong className={accent ? "text-orange-700" : "text-forest"}>{value}</strong>
     </div>
   );
@@ -212,4 +242,140 @@ function Stat({ label, value, accent = false }: { label: string; value: string |
 
 function formatKm(value: number) {
   return `${new Intl.NumberFormat("fr-FR").format(value)} km`;
+}
+
+function WinRateChart({ winRate }: { winRate: number }) {
+  const lossRate = 100 - winRate;
+  return (
+    <div className="w-full max-w-xs mx-auto">
+      <div className="relative h-32 mb-4">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <svg viewBox="0 0 100 100" className="w-28 h-28 -rotate-90">
+            <circle
+              cx="50"
+              cy="50"
+              r="45"
+              stroke="#e5e7eb"
+              strokeWidth="8"
+              fill="none"
+            />
+            <circle
+              cx="50"
+              cy="50"
+              r="45"
+              stroke="#22c55e"
+              strokeWidth="8"
+              fill="none"
+              strokeDasharray={282.743}
+              strokeDashoffset={282.743 * (1 - winRate / 100)}
+              strokeLinecap="round"
+              className="transition-all duration-1000"
+              style={{ transformOrigin: "center" }}
+            />
+            {lossRate > 0 && (
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                stroke="#ef4444"
+                strokeWidth="8"
+                fill="none"
+                strokeDasharray={282.743}
+                strokeDashoffset={282.743 * (winRate / 100)}
+                strokeLinecap="round"
+                className="transition-all duration-1000"
+              />
+            )}
+          </svg>
+          <div className="text-center">
+            <strong className="text-2xl font-black text-forest">{winRate}%</strong>
+            <span className="block text-xs text-stone-500">Taux de victoire</span>
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-center gap-6 text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-emerald-500" />
+          <span className="text-stone-600">Victoires</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-red-500" />
+          <span className="text-stone-600">Défaites</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GameTypeChart({ solo, multiplayer }: { solo: number; multiplayer: number }) {
+  const total = solo + multiplayer;
+  if (total === 0) {
+    return (
+      <div className="w-full max-w-xs mx-auto text-center text-stone-500 py-8">
+        Aucune partie jouée
+      </div>
+    );
+  }
+  const soloPercent = (solo / total) * 100;
+  const multiPercent = (multiplayer / total) * 100;
+  return (
+    <div className="w-full max-w-xs mx-auto">
+      <div className="relative h-32 mb-4">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <svg viewBox="0 0 100 100" className="w-28 h-28 -rotate-90">
+            <circle
+              cx="50"
+              cy="50"
+              r="45"
+              stroke="#e5e7eb"
+              strokeWidth="8"
+              fill="none"
+            />
+            {solo > 0 && (
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                stroke="#3b82f6"
+                strokeWidth="8"
+                fill="none"
+                strokeDasharray={282.743}
+                strokeDashoffset={282.743 * (1 - soloPercent / 100)}
+                strokeLinecap="round"
+                className="transition-all duration-1000"
+              />
+            )}
+            {multiplayer > 0 && (
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                stroke="#f59e0b"
+                strokeWidth="8"
+                fill="none"
+                strokeDasharray={282.743}
+                strokeDashoffset={solo > 0 ? 282.743 * (1 - multiPercent / 100) : 282.743 * (1 - multiPercent / 100)}
+                strokeLinecap="round"
+                className="transition-all duration-1000"
+              />
+            )}
+          </svg>
+          <div className="text-center">
+            <strong className="text-2xl font-black text-forest">{total}</strong>
+            <span className="block text-xs text-stone-500">Parties totales</span>
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-center gap-6 text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-blue-500" />
+          <span className="text-stone-600">Solo ({solo})</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-amber-500" />
+          <span className="text-stone-600">Multijoueur ({multiplayer})</span>
+        </div>
+      </div>
+    </div>
+  );
 }

@@ -8,6 +8,7 @@ import { buttonClass } from "./Button";
 const links = [
   { to: "/lobby", label: "Multijoueur" },
   { to: "/solo", label: "Mode solo" },
+  { to: "/leaderboard", label: "Classement" },
 ];
 
 export function AppShell() {

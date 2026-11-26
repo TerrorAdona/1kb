@@ -586,13 +586,19 @@ def finish_game(
             if participant.user_id is None:
                 continue
             stats, _ = PlayerStats.objects.get_or_create(user_id=participant.user_id)
+            is_winner = participant.pk == winner.pk
             PlayerStats.objects.filter(pk=stats.pk).update(
                 games_played=F("games_played") + 1,
-                wins=F("wins") + int(participant.pk == winner.pk),
+                wins=F("wins") + int(is_winner),
+                losses=F("losses") + int(not is_winner),
                 total_kilometers=F("total_kilometers") + participant.kilometers,
                 best_kilometers=Greatest(
                     F("best_kilometers"), Value(participant.kilometers)
                 ),
+                solo_games_played=F("solo_games_played")
+                + int(game.mode == Game.Mode.SOLO),
+                multiplayer_games_played=F("multiplayer_games_played")
+                + int(game.mode == Game.Mode.MULTIPLAYER),
             )
         record_game_event(
             game,

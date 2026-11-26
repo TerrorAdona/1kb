@@ -11,6 +11,7 @@ import { RoomPage } from "../features/lobby/RoomPage";
 import { SoloSetupPage } from "../features/solo/SoloSetupPage";
 import { GamePage } from "../features/game/GamePage";
 import { ResultPage } from "../features/results/ResultPage";
+import { LeaderboardPage } from "../features/profile/LeaderboardPage";
 import { ProfilePage } from "../features/profile/ProfilePage";
 import { useAuthStore } from "../features/auth/authStore";
 import { NotFoundPage } from "../shared/components/NotFoundPage";
@@ -75,6 +76,14 @@ export function App() {
             element={
               <AuthGate>
                 <ProfilePage />
+              </AuthGate>
+            }
+          />
+          <Route
+            path="leaderboard"
+            element={
+              <AuthGate>
+                <LeaderboardPage />
               </AuthGate>
             }
           />

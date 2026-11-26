@@ -5,6 +5,7 @@ import type {
   CreatedGame,
   Game,
   GameHistory,
+  LeaderboardEntry,
   PlayerStats,
 } from "../../shared/types/api";
 
@@ -104,5 +105,12 @@ export async function getGameHistory() {
 
 export async function playSoloAction(gameId: string, payload: SoloActionPayload) {
   const { data } = await api.post<SoloActionResponse>(`/games/${gameId}/action/`, payload);
+  return data;
+}
+
+export async function getLeaderboard(limit = 50) {
+  const { data } = await api.get<LeaderboardEntry[]>(`/stats/leaderboard/`, {
+    params: { limit },
+  });
   return data;
 }

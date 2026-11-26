@@ -71,8 +71,26 @@ export interface GameHistory {
 export interface PlayerStats {
   games_played: number;
   wins: number;
+  losses: number;
   win_rate: number;
   total_kilometers: number;
   best_kilometers: number;
+  solo_games_played: number;
+  multiplayer_games_played: number;
+  average_kilometers: number;
   updated_at: string;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  user_id: number;
+  display_name: string;
+  games_played: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  total_kilometers: number;
+  best_kilometers: number;
+  solo_games_played: number;
+  multiplayer_games_played: number;
 }
