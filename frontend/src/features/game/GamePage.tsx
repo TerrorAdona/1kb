@@ -274,7 +274,9 @@ function LiveSoloGame({ game }: { game: Game }) {
   const [message, setMessage] = useState("");
   const [isActing, setIsActing] = useState(false);
   const [turnNotification, setTurnNotification] = useState<{ show: boolean; message: string } | null>(null);
+  const [showGameEndModal, setShowGameEndModal] = useState(false);
   const wasMyTurnRef = useRef(false);
+  const gameEndShownRef = useRef(false);
 
   useEffect(() => {
     const loadSnapshot = async () => {
@@ -321,6 +323,19 @@ function LiveSoloGame({ game }: { game: Game }) {
     }
     wasMyTurnRef.current = isMyTurn;
   }, [state?.active_player_id, state?.phase, state?.can_pass]);
+
+  // Show game end modal when game finishes
+  useEffect(() => {
+    if (game.status === "finished" && !gameEndShownRef.current) {
+      gameEndShownRef.current = true;
+      setShowGameEndModal(true);
+    }
+    if (game.status !== "finished") {
+      gameEndShownRef.current = false;
+      setShowGameEndModal(false);
+    }
+  }, [game.status]);
+
   const self = state?.players.find(
     (player) => player.player_id === state.viewer_player_id,
   );
@@ -727,16 +742,61 @@ function LiveSoloGame({ game }: { game: Game }) {
           </aside>
         </section>
       </div>
-      {game.status === "finished" && (
-        <div className="mt-6 text-center">
-          <Button onClick={() => navigate(`/result/${game.id}`)}>
-            Voir le résultat <Trophy size={16} />
-          </Button>
-        </div>
-      )}
       <p className="mt-4 text-center text-[10px] text-stone-500">
         Les coups sont validés par le serveur. Les bots jouent automatiquement.
       </p>
+
+      {showGameEndModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="game-end-title">
+          <div className="w-full max-w-md rounded-2xl bg-forest-950 border border-orange-300/30 p-6 shadow-2xl animate-modal-enter">
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                <Trophy size={28} />
+              </div>
+              <h2 id="game-end-title" className="mb-2 font-display text-2xl font-extrabold text-cream">
+                Partie terminée
+              </h2>
+              {game.winner_display_name && (
+                <p className="mb-1 text-lg font-semibold text-emerald-300">
+                  {game.winner_display_name === (self?.display_name ?? "Vous") ? "🎉 Vous avez gagné !" : `Victoire de ${game.winner_display_name}`}
+                </p>
+              )}
+              {state?.finish_reason && (
+                <p className="mb-6 text-sm text-cream/60">{state.finish_reason}</p>
+              )}
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1 border-white/15 bg-white/5 text-cream hover:bg-white/10"
+                  onClick={() => {
+                    setShowGameEndModal(false);
+                    navigate("/lobby");
+                  }}
+                >
+                  Quitter
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={() => {
+                    setShowGameEndModal(false);
+                    navigate("/lobby");
+                  }}
+                >
+                  Rejouer
+                </Button>
+              </div>
+              <ButtonLink
+                to={`/result/${game.id}`}
+                variant="quiet"
+                size="sm"
+                className="mt-4 block text-cream/60 hover:text-cream"
+              >
+                Voir le détail du résultat <ArrowRight size={14} />
+              </ButtonLink>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -748,7 +808,9 @@ function LiveMultiplayerGame({ game }: { game: Game }) {
   const [selectedTargetId, setSelectedTargetId] = useState("");
   const [message, setMessage] = useState("");
   const [turnNotification, setTurnNotification] = useState<{ show: boolean; message: string } | null>(null);
+  const [showGameEndModal, setShowGameEndModal] = useState(false);
   const wasMyTurnRef = useRef(false);
+  const gameEndShownRef = useRef(false);
   const { status: socketStatus, send } = useGameSocket(game.id, {
     onSnapshot: (next) => {
       setSnapshot(next);
@@ -809,6 +871,18 @@ function LiveMultiplayerGame({ game }: { game: Game }) {
     }
     wasMyTurnRef.current = isMyTurn;
   }, [state?.active_player_id, state?.phase, state?.can_pass]);
+
+  // Show game end modal when game finishes
+  useEffect(() => {
+    if (game.status === "finished" && !gameEndShownRef.current) {
+      gameEndShownRef.current = true;
+      setShowGameEndModal(true);
+    }
+    if (game.status !== "finished") {
+      gameEndShownRef.current = false;
+      setShowGameEndModal(false);
+    }
+  }, [game.status]);
 
   function sendAction(action: string, extra: Record<string, unknown> = {}) {
     if (!snapshot) return;
@@ -1192,16 +1266,61 @@ function LiveMultiplayerGame({ game }: { game: Game }) {
           </aside>
         </section>
       </div>
-      {game.status === "finished" && (
-        <div className="mt-6 text-center">
-          <Button onClick={() => navigate(`/result/${game.id}`)}>
-            Voir le résultat <Trophy size={16} />
-          </Button>
-        </div>
-      )}
       <p className="mt-4 text-center text-[10px] text-stone-500">
         Les coups sont validés par le serveur. Les mains adverses restent cachées.
       </p>
+
+      {showGameEndModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="game-end-title">
+          <div className="w-full max-w-md rounded-2xl bg-forest-950 border border-orange-300/30 p-6 shadow-2xl animate-modal-enter">
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                <Trophy size={28} />
+              </div>
+              <h2 id="game-end-title" className="mb-2 font-display text-2xl font-extrabold text-cream">
+                Partie terminée
+              </h2>
+              {game.winner_display_name && (
+                <p className="mb-1 text-lg font-semibold text-emerald-300">
+                  {game.winner_display_name === (self?.display_name ?? "Vous") ? "🎉 Vous avez gagné !" : `Victoire de ${game.winner_display_name}`}
+                </p>
+              )}
+              {state?.finish_reason && (
+                <p className="mb-6 text-sm text-cream/60">{state.finish_reason}</p>
+              )}
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1 border-white/15 bg-white/5 text-cream hover:bg-white/10"
+                  onClick={() => {
+                    setShowGameEndModal(false);
+                    navigate("/lobby");
+                  }}
+                >
+                  Quitter
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={() => {
+                    setShowGameEndModal(false);
+                    navigate("/lobby");
+                  }}
+                >
+                  Rejouer
+                </Button>
+              </div>
+              <ButtonLink
+                to={`/result/${game.id}`}
+                variant="quiet"
+                size="sm"
+                className="mt-4 block text-cream/60 hover:text-cream"
+              >
+                Voir le détail du résultat <ArrowRight size={14} />
+              </ButtonLink>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
